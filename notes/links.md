@@ -1,0 +1,3 @@
+- https://towardsdatascience.com/the-basics-time-series-and-seasonal-decomposition-b39fef4aa976
+- https://towardsdatascience.com/automation-package-to-impute-missing-values-in-a-time-series-be30a2fce037
+- http://manishbarnwal.com/blog/2017/05/03/time_series_and_forecasting_using_R/#:~:text=Daily%20data%20There%20could%20be,better%20to%20use%20frequency%20%3D%20365.25.

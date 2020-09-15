@@ -1,0 +1,6 @@
+- lave funktion færdig
+- sammenligne to stader, sætte data.frames sammen at tidstampler. dvs. dagene er ens. Lave plot , skal være på en lige linje. Correlation. Kigge også på tempraturen. 
+  - Jeg kan ikke bruge hivetool night data, dataen er ikke behandlet for manual indgreb, så jeg skal selv finde måde at finde midnaight data
+- extracte middat værdi og middag
+- fylde op manglende tidstampler med lige fordelt delta
+- predict vinteren, dvs. der skal være en konstant nedadgående trends, men hvis den brydes, så der kan være en tegn på at der er noget galt med familien. 

@@ -1,0 +1,2 @@
+- Hvordan kan jeg få det til at fungere at køre R script i backend? Dvs on_request skal der spørge for dataen, behandle den og sende den behandlede version. 
+- Det er er en ide for projekt. At have two databases one with hive data, another one with period to skip. Lave databehandling on the fly

@@ -1,0 +1,2 @@
+- https://cran.r-project.org/web/packages/ymlthis/vignettes/yaml-fieldguide.html
+- https://rstudio.com/wp-content/uploads/2016/03/rmarkdown-cheatsheet-2.0.pdf

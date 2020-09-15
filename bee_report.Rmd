@@ -1,0 +1,177 @@
+---
+title: "Big data"
+subtitle: "Databehandling af data fra et bistade"
+author: "Armandas Rokas"
+date: "11/09 2020"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_document:
+    toc: yes
+    toc_depth: '3'
+    df_print: paged
+---
+\pagenumbering{gobble} 
+
+
+\pagebreak
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("bee_my_functions.R")
+library(dplyr)
+setwd("/home/arm/Projects/bigdata/r/bistader")
+```
+\pagebreak
+\pagenumbering{arabic} 
+
+## Introduktion
+Dette rapport beskriver databehandling af data fra et bistade.  Dataen samles via Raspbarry Pi, som er tilknyttet til forskellige sensorer, som måler vægten, fugtighed, lys osv. (hele listen af variabler kan man se i [Variabler](#variabler) afsnit), og gemmes både lokalt på SQLite databasen og sendes til HiveTool.net platformen. 
+
+
+## Import af data
+Der blev valgt at bruge SQLite til at indlæse dataen, da det er lidt svært at få fat i dataen på HiveTool.net, især hvis man skal bruge en lang tidsperiode. Så der blev skrevet en lille funktion, som indlæser dataen fra SQLite, som man kan se nedenfor:
+
+
+```R
+import_hive_data <- function(from, to){
+  library(DBI)
+  con <- dbConnect(RSQLite::SQLite(), "data/stade1.db")
+  table_name <- dbListTables(con)
+  fields <- dbListFields(con, table_name)
+  select_period_with_intervention_query <- paste("SELECT * from", table_name,
+                        "WHERE hive_observation_time_local > ",from," AND 
+                        hive_observation_time_local < ", to, sep=" ") 
+  
+  sendQuery <- dbSendQuery(con, select_period_with_intervention_query )
+  #  hive_data <<- dbFetch(sendQuery) 
+  hive_data <- dbFetch(sendQuery) 
+  hive_data$hive_observation_time_local <- strptime(hive_data$hive_observation_time_local, 
+            format = "%Y-%m-%d %H:%M:%S") #  Convert string to be recognized as date
+  return (hive_data)  
+}
+```
+
+## Data beskrivelse
+Observationer fra bistadet bliver taget hver 5. minut og der er i alt 105064 observationer ([Bilag A](#bilag_A)). Dataen er dog ikke helt konsistent, da der er nogle huller i datasættet, hvor der mangler målinger, og der er nogle målinger, som har forkerte værdier. Dataen går helt tilabge til 2018-03-07, men den bliver mere og mere inkonsistente jo mere i fortiden man går, så derfor blev der valgt at tage udgangspunkt i et års data, dvs. fra 2019-09-01 til 2020-09-01.
+
+
+```{r include=FALSE}
+hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'")
+```
+
+
+
+### Variabler {#variabler}
+
+Der er i alt 43 variabler i datasættet, men ud fra opsummering af alle variabler i datasættet i [Bilag A](#bilag_A) kan man konstatere at disse variabler kun er i brug og relevente: `hive_observation_time_local`, `hive_weight_kgs`, `hive_temp_c`, `hive_humidity`, `ambient_temp_c`,
+`ambient_humidity`og `ambient_luminance`. Nedenfor opsummering af disse variabler:
+
+
+
+```{r}
+summary(hive_data$hive_observation_time_local)
+summary(hive_data$hive_weight_kgs)
+summary(hive_data$hive_temp_c)
+summary(hive_data$hive_humidity)
+summary(hive_data$ambient_temp_c)
+summary(hive_data$ambient_humidity)
+summary(hive_data$ambient_luminance)
+```
+
+\pagebreak
+
+### Sammenhæng mellem vægt og temperatur
+Ud fra grafen nedenfor kan man fornemme at når tempraturen stiger så vægten gør også, men jeg er ikke sikker om man kan bruge denne sammenhæng mellem vægt og temperatur til noget???? Dvs. giver det overhovet mening til at kigge på correlation i time series??? Linear regression??? 
+
+```{r include=FALSE}
+hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'")
+```
+
+
+```{r echo=FALSE}
+# TODO: Grafen skal også smoorthes med floating mean. 
+plot_time_weight_temp(hive_data)
+```
+
+
+```{r include=FALSE}
+#cor(hive_data$hive_weight, hive_data$ambient_temperature)
+#plot(hive_data$ambient_temperature, hive_data$hive_weight, xlab="ambient_temperature", ylab="hive_weight")
+```
+
+\pagebreak
+
+### Vægten
+I dette afsnit fokuseres der kun på vægten, som er den centrale variable i datasættet, i perioden fra 2020-05-01 til 2020-08-31.Dette kan se i grafen nedenfor. 
+
+```{r echo=FALSE}
+hive_data <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
+plot_time_weight(hive_data) 
+```
+
+
+#### Dataoprensning
+
+Der er ret mange fejlagtige vægtmålinger i datasættet og nedenfor er en liste over mulige grunde, som kan give udsving i vægten, men som ikke forårsagers af bierne:
+
+ - Manuelt indgreb
+ - Nedbør (sne er vigtere)
+
+ 
+<!-- https://en.wikipedia.org/wiki/Data_cleansing --> 
+
+
+##### Manuelle indgreb 
+Manuelle indgreb på bistadet medfører de største udsving i vægten, så disse skulle fjernes før man kunne påbegynde noget andet. Eksampler på manuelle indgreb kunne være:
+
+ - Påsætte/fjerne magasin
+ - Andre mindre manipulation 
+
+De fleste manual indgreb følge efter afbrydelser i timestamps. Det kan forklares med at en biavler slukker optagelse af målinger, når biavlen laver et manualt indgreb, men når han tænder optagelsen, laver den en stor udsving i vægten i en eller anden retning i for hold hvad han fik lavet.
+
+Så derfor blev der startede med at finde deltaerne mellem vægtene før arbrydelser i timestmaps og efter, dvs. huler i datasættet. En liste over det kan man se nedenfor:
+ 
+```{r}
+
+
+hive_data <- hive_data %>%  mutate(timestamp_delta = hive_observation_time_local -
+  dplyr::lag(hive_observation_time_local)) %>% 
+  mutate(timestamp_delta = ifelse(is.na(timestamp_delta), 0, timestamp_delta))
+
+hive_data <- hive_data %>%  mutate(weight_delta = hive_weight_kgs -
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+
+hive_data[which(hive_data[,"timestamp_delta"] > 7), 
+          c("hive_observation_time_local", "weight_delta")]
+```
+
+- Man kan se at ikke alle huler følger efter en stor udsving i vægten, men det kunne være en mulig løsning til at fjerne alligevel alle, hvis man har lyst til at automatisere databehandling. Den anden mulighed, som er ønsket af projektstilleren at have mulighed at definere selv perioder, som skal ignoreres.  
+- Der blev valgt at undersøge vægten videre omkring `2020-05-28 12:25:01`, hvor vægten har øget med `3.49`, fordi der blev sat en nye magasin ind. Nedenfor er grafen over vægten omkring dette tidspunkt.
+
+```{r echo=FALSE}
+hive_data <- import_hive_data(from = "'2020-05-24 00:00:00'", to="'2020-06-01 00:00:00'")
+plot_time_weight(hive_data)
+```
+ 
+ 
+## Projektidéer
+
+ 
+## Bilag
+ 
+### Bilag A: Opsummering af alle variabler i datasættet {#bilag_A}
+
+
+
+
+```{r include=FALSE}
+hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'")
+```
+
+
+```{r}
+str(hive_data)
+summary(hive_data)
+```
