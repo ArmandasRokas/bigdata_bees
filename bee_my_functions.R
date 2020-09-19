@@ -13,10 +13,13 @@ import_hive_data <- function(from, to){
   return (hive_data)  
 }
 
-plot_time_weight <- function(hive_data){
+plot_time_weight <- function(hive_data, title){
+  if(missing(title)){
+    title <- "Vægtudvikling"
+  }
   min <- as.Date(head(hive_data, 1)[,4])
   max <- as.Date(tail(hive_data, 1)[,4])
-  plot(hive_data$hive_observation_time_local, hive_data$hive_weight_kgs, type = 'l', xlab = paste("Tid fra", min, "til", max, sep= " ") , ylab="Vægt", main = "Vægtudvikling")
+  plot(hive_data$hive_observation_time_local, hive_data$hive_weight_kgs, type = 'l', xlab = paste("Tid fra", min, "til", max, sep= " ") , ylab="Vægt", main=title)
   # , at=seq(as.Date(min),as.Date(max),by=(13*7))
 }
 
@@ -58,7 +61,7 @@ manipulate_weight_deltas <- function(hive_data, periods){
   
   # Manipulate weight deltas
   for(row in 1:nrow(periods)){
-    hive_data$weight_delta[hive_data$hive_observation_time_local> periods[row, "from_timestamps"]  & hive_data$hive_observation_time_local < periods[row, "to_timestamps"]  ] <- periods[row, "new_deltas"]
+    hive_data$weight_delta[hive_data$hive_observation_time_local> periods[row, "from"]  & hive_data$hive_observation_time_local < periods[row, "to"]  ] <- periods[row, "new_delta"]
   }
   
   # Produce cumulative sums of weight deltas
@@ -74,4 +77,16 @@ manipulate_weight_deltas <- function(hive_data, periods){
   return(hive_data)
 }
 
+extract_midnight_weights <- function(hive_data){
+  
+  hive_data <- hive_data %>% 
+  mutate( dt = as.Date(hive_observation_time_local)) %>% 
+  group_by(dt) %>%
+  filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
+  ungroup() %>%
+  select(!dt)
+  
+  return(data.frame(hive_data))
+  
+}
 

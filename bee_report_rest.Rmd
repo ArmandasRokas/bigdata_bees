@@ -1,0 +1,31 @@
+---
+title: "Bee report rest"
+author: "Armandas Rokas(s185144)"
+date: "9/19/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\pagebreak
+
+### Sammenhæng mellem vægt og temperatur
+Ud fra grafen nedenfor kan man fornemme at når tempraturen stiger så vægten gør også, men jeg er ikke sikker om man kan bruge denne sammenhæng mellem vægt og temperatur til noget???? Dvs. giver det overhovet mening til at kigge på correlation i time series??? Linear regression??? 
+
+```{r include=FALSE}
+hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'")
+```
+
+
+```{r echo=FALSE}
+# TODO: Grafen skal også smoorthes med floating mean. 
+plot_time_weight_temp(hive_data)
+```
+
+
+```{r include=FALSE}
+#cor(hive_data$hive_weight, hive_data$ambient_temperature)
+#plot(hive_data$ambient_temperature, hive_data$hive_weight, xlab="ambient_temperature", ylab="hive_weight")
+```

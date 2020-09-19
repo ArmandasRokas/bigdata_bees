@@ -1,6 +1,6 @@
 ---
-title: "Big data"
-subtitle: "Databehandling af data fra et bistade"
+title: "Bistader"
+subtitle: "62527 Big data E20"
 author: "Armandas Rokas"
 date: "11/09 2020"
 output:
@@ -20,7 +20,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 source("bee_my_functions.R")
 library(dplyr)
-setwd("/home/arm/Projects/bigdata/r/bistader")
+setwd("/home/arm/Projects/bigdata_bees")
 ```
 \pagebreak
 \pagenumbering{arabic} 
@@ -81,29 +81,8 @@ summary(hive_data$ambient_luminance)
 
 \pagebreak
 
-### Sammenhæng mellem vægt og temperatur
-Ud fra grafen nedenfor kan man fornemme at når tempraturen stiger så vægten gør også, men jeg er ikke sikker om man kan bruge denne sammenhæng mellem vægt og temperatur til noget???? Dvs. giver det overhovet mening til at kigge på correlation i time series??? Linear regression??? 
-
-```{r include=FALSE}
-hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'")
-```
-
-
-```{r echo=FALSE}
-# TODO: Grafen skal også smoorthes med floating mean. 
-plot_time_weight_temp(hive_data)
-```
-
-
-```{r include=FALSE}
-#cor(hive_data$hive_weight, hive_data$ambient_temperature)
-#plot(hive_data$ambient_temperature, hive_data$hive_weight, xlab="ambient_temperature", ylab="hive_weight")
-```
-
-\pagebreak
-
 ### Vægten
-I dette afsnit fokuseres der kun på vægten, som er den centrale variable i datasættet, i perioden fra 2020-05-01 til 2020-08-31.Dette kan se i grafen nedenfor. 
+Vægten er den centrale variable i datasættet, .Dette kan se i grafen nedenfor. For eksampel nedenfor kan man se en vægtudvikling fra i perioden fra 2020-05-01 til 2020-08-31
 
 ```{r echo=FALSE}
 hive_data <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
@@ -111,18 +90,18 @@ plot_time_weight(hive_data)
 ```
 
 
-#### Dataoprensning
+## Dataoprensning
 
 Der er ret mange fejlagtige vægtmålinger i datasættet og nedenfor er en liste over mulige grunde, som kan give udsving i vægten, men som ikke forårsagers af bierne:
 
  - Manuelt indgreb
  - Nedbør (sne er vigtere)
 
+<!-- måske omskrive at generelt støj at aflæse vægt tilvækst. daglig rutine, manuelt indgrb...  -->
  
 <!-- https://en.wikipedia.org/wiki/Data_cleansing --> 
 
-
-##### Manuelle indgreb 
+### Manuelle indgreb 
 Manuelle indgreb på bistadet medfører de største udsving i vægten, så disse skulle fjernes før man kunne påbegynde noget andet. Eksampler på manuelle indgreb kunne være:
 
  - Påsætte/fjerne magasin
@@ -132,7 +111,7 @@ De fleste manual indgreb følge efter afbrydelser i timestamps. Det kan forklare
 
 Så derfor blev der startede med at finde deltaerne mellem vægtene før arbrydelser i timestmaps og efter, dvs. huler i datasættet. En liste over det kan man se nedenfor:
  
-```{r}
+```{r echo=FALSE}
 
 
 hive_data <- hive_data %>%  mutate(timestamp_delta = hive_observation_time_local -
@@ -143,28 +122,64 @@ hive_data <- hive_data %>%  mutate(weight_delta = hive_weight_kgs -
   dplyr::lag(hive_weight_kgs)) %>%
   mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
 
-hive_data[which(hive_data[,"timestamp_delta"] > 7), 
+hive_data[which(hive_data[,"timestamp_delta"] > 7 & abs(hive_data[,"weight_delta"]) > 2 ), 
           c("hive_observation_time_local", "weight_delta")]
 ```
 
 - Man kan se at ikke alle huler følger efter en stor udsving i vægten, men det kunne være en mulig løsning til at fjerne alligevel alle, hvis man har lyst til at automatisere databehandling. Den anden mulighed, som er ønsket af projektstilleren at have mulighed at definere selv perioder, som skal ignoreres.  
-- Der blev valgt at undersøge vægten videre omkring `2020-05-28 12:25:01`, hvor vægten har øget med `3.49`, fordi der blev sat en nye magasin ind. Nedenfor er grafen over vægten omkring dette tidspunkt.
+- For at visualisere problemet bedre blev der valgt at plotte vægten videre omkring `2020-05-28 12:25:01`, hvor vægten har øget med `3.49`, fordi der blev sat en nye magasin ind. Nedenfor er grafen over vægten omkring dette tidspunkt.
 
 ```{r echo=FALSE}
 hive_data <- import_hive_data(from = "'2020-05-24 00:00:00'", to="'2020-06-01 00:00:00'")
 plot_time_weight(hive_data)
 ```
- 
- 
-## Projektidéer
 
+\pagebreak
+
+- Så der blev skrevet en lille funktion til at udligne disse manuelle indgreb (hele koden af funktionen kan findes i [Bilag B](#bilag_B)). Funktionen tager imod bistader data og perioder, som skal udlignes. Den returnere behandlet bistade data. Nedenfor kan man se to grafer, til venstre er der en graf med den oprindelige data og til højre er der en graf med den behandlede data, dvs. udlignede manuelle indgreb. 
+
+```{R echo=FALSE}
+ hive_data <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
+  par(mfrow=c(1,2))
+  plot_time_weight(hive_data, title="Den oprindelige data")
+  
+  
+
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  
+  
+  plot_time_weight(hive_data, title="Den behandlede data")
+
+```
+
+\pagebreak
+ 
+### Alt for mange datapunkter
+
+Den anden ting, som gør det svært at aflæse den ægte vægt tilvækst pr. dag, er at der alt for mange datapunkter, hvor der er målinger hvert 5. minut. Bierne følger den daglige rutine. Det flyver ud om morgen, indsamler nektar i løbet af dagen, om natten fordamper den. Det medfører at vægten svinger op og ned i løbet af dagen og for at se den ægte vægt tilvækst pr. dag er det bedst at kigge på midnatsværdier. Så der blev skrevet endnu en funktion, som trækker ud midnatsværdier (hele koden kan findes i [Bilag C](#bilag_C)). Nedenfor er der to grafer. Til venstre er der alle data punkter, dvs. hvert 5. minut. Til højre er der kun midnatsværdier. Man kan se at det er nemmere aflæse grafen kun med midnatsværdier især i august måned, hvor vægten svinger mest i løbet af dagen. 
+
+```{R echo=FALSE}
+  hive_data <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  par(mfrow=c(1,2))
+  plot_time_weight(hive_data, title="Alle datapunkter")
+  hive_data <- extract_midnight_weights(hive_data)
+  plot_time_weight(hive_data, title="Kun midnatsværdier")
+```
+
+## Dataanalyze
+
+
+### Sammenligning af bistader
+I dette afsnit skal der sammenlignes to bistader fra den samen have. Formålet med sammenligned at vudere om den anden familie præstere bedre end den anden og forudse sygdomme 
+- Projektidéer
+- Sammenligne bistade2 1 og bestade 3
  
 ## Bilag
  
 ### Bilag A: Opsummering af alle variabler i datasættet {#bilag_A}
-
-
-
 
 ```{r include=FALSE}
 hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'")
@@ -175,3 +190,53 @@ hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00
 str(hive_data)
 summary(hive_data)
 ```
+
+### Bilag B: Funktion til at udligne manualle indgreb{#bilag_B} 
+
+```R
+manipulate_weight_deltas <- function(hive_data, periods){
+  library(dplyr)
+  # Add column weight_delta
+  hive_data <- hive_data %>%  mutate(weight_delta = hive_weight_kgs -
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+  
+  # Manipulate weight deltas
+  for(row in 1:nrow(periods)){
+    hive_data$weight_delta[hive_data$hive_observation_time_local> periods[row, "from"]  
+    & hive_data$hive_observation_time_local < periods[row, "to"]  ]
+    <- periods[row, "new_delta"]
+  }
+  
+  # Produce cumulative sums of weight deltas
+  hive_data <- hive_data %>% mutate(cum_delta=cumsum(weight_delta))
+  
+  # Produce new hive_weight_kgs from calculated cumukatiuve sums
+  hive_data <- hive_data %>% mutate(hive_weight_kgs = hive_weight_kgs[1]+ cum_delta)
+  
+  
+  # Remove the produced columns
+  drops <- c("weight_delta", "cum_delta")
+  hive_data <- hive_data[ , !(names(hive_data) %in% drops)]
+  return(hive_data)
+}
+```
+
+### Bilag C: Funktion til at trække midnatsværdier ud{#bilag_C} 
+
+```R
+extract_midnight_weights <- function(hive_data){
+  
+  hive_data <- hive_data %>% 
+  mutate( dt = as.Date(hive_observation_time_local)) %>% 
+  group_by(dt) %>%
+  filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
+  ungroup() %>%
+  select(!dt)
+  
+  return(data.frame(hive_data))
+  
+}
+```
+
+
