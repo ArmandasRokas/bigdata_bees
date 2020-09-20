@@ -29,3 +29,30 @@ plot_time_weight_temp(hive_data)
 #cor(hive_data$hive_weight, hive_data$ambient_temperature)
 #plot(hive_data$ambient_temperature, hive_data$hive_weight, xlab="ambient_temperature", ylab="hive_weight")
 ```
+
+
+```{r}
+par(mfrow=c(2,1))
+old.par = par(mar = c(3, 4, 1, 2))
+plot(hive1$hive_observation_time_local, hive1$daily_weight_delta, type="h",main="Bistade1", ylab="Daglig vægttilvækst", xlab="", col="red")
+lines(hive3$hive_observation_time_local, hive3$daily_weight_delta,col="blue", lwd = 0.2, , lty=2, type="l")
+plot(hive3$hive_observation_time_local, hive3$daily_weight_delta, type="h",main="Bistade3", ylab="Daglig vægttilvækst", xlab="")
+par(old.par)
+
+```
+
+
+```{R echo=FALSE}
+# ,  fig.height=20, fig.width=15
+
+
+plot(hive1$hive_observation_time_local, hive1$daily_weight_delta, type="h",main="Bistade1", ylab="Daglig vægttilvækst", xlab="", col="red")
+par(new=TRUE)
+# Add 12 hours to hive3
+hive3_plus12hours <- hive3
+hive3_plus12hours$hive_observation_time_local <- hive3_plus12hours$hive_observation_time_local + 12*60*60
+
+plot(hive3_plus12hours$hive_observation_time_local, hive3_plus12hours$daily_weight_delta, type="h",main="Bistade3", ylab="Daglig vægttilvækst", xlab="", col="blue")
+
+
+```

@@ -20,6 +20,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 source("bee_my_functions.R")
 library(dplyr)
+library(forecast)
 setwd("/home/arm/Projects/bigdata_bees")
 ```
 \pagebreak
@@ -82,30 +83,30 @@ summary(hive_data$ambient_luminance)
 \pagebreak
 
 ### Vægten
-Vægten er den centrale variable i datasættet, .Dette kan se i grafen nedenfor. For eksampel nedenfor kan man se en vægtudvikling fra i perioden fra 2020-05-01 til 2020-08-31
+Vægten er den centrale variable i datasættet. For eksempel nedenfor kan man se en vægtudvikling fra i perioden fra 2019-09-01 til 2020-09-01, hvor man kan se tydeligt to sæsoner. Om vinteren vægten bliver gradvis mindre, fordi biene spiser føder, og om sommer trakker nektar ind i et bistade. 
 
 ```{r echo=FALSE}
-hive_data <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
 plot_time_weight(hive_data) 
 ```
 
 
 ## Dataoprensning
 
-Der er ret mange fejlagtige vægtmålinger i datasættet og nedenfor er en liste over mulige grunde, som kan give udsving i vægten, men som ikke forårsagers af bierne:
+Der er flere årsager til at det er svært at aflæse en eksakt tilvækst af vægten. De mulige årsager kunne være:
 
- - Manuelt indgreb
- - Nedbør (sne er vigtere)
-
-<!-- måske omskrive at generelt støj at aflæse vægt tilvækst. daglig rutine, manuelt indgrb...  -->
+  - Manuelt indgreb
+  - Nedbør 
+  - Biernes daglig rutine
+  
+Disse er beskrevet videre i afsnittet udtaget nedbør, da dette giver minimalt støj og der er ikke umiddelbart behov til at tage hensyn til det. 
  
 <!-- https://en.wikipedia.org/wiki/Data_cleansing --> 
 
 ### Manuelle indgreb 
-Manuelle indgreb på bistadet medfører de største udsving i vægten, så disse skulle fjernes før man kunne påbegynde noget andet. Eksampler på manuelle indgreb kunne være:
+Manuelle indgreb på bistadet medfører de største udsving i vægten, men som ikke forårsagers af bierne, så disse skulle fjernes før man kunne påbegynde noget andet. Eksempler på manuelle indgreb kunne være:
 
  - Påsætte/fjerne magasin
- - Andre mindre manipulation 
+ - Andre mindre manipulationer
 
 De fleste manual indgreb følge efter afbrydelser i timestamps. Det kan forklares med at en biavler slukker optagelse af målinger, når biavlen laver et manualt indgreb, men når han tænder optagelsen, laver den en stor udsving i vægten i en eller anden retning i for hold hvad han fik lavet.
 
@@ -155,7 +156,7 @@ plot_time_weight(hive_data)
 
 \pagebreak
  
-### Alt for mange datapunkter
+### Biernes daglig rutine
 
 Den anden ting, som gør det svært at aflæse den ægte vægt tilvækst pr. dag, er at der alt for mange datapunkter, hvor der er målinger hvert 5. minut. Bierne følger den daglige rutine. Det flyver ud om morgen, indsamler nektar i løbet af dagen, om natten fordamper den. Det medfører at vægten svinger op og ned i løbet af dagen og for at se den ægte vægt tilvækst pr. dag er det bedst at kigge på midnatsværdier. Så der blev skrevet endnu en funktion, som trækker ud midnatsværdier (hele koden kan findes i [Bilag C](#bilag_C)). Nedenfor er der to grafer. Til venstre er der alle data punkter, dvs. hvert 5. minut. Til højre er der kun midnatsværdier. Man kan se at det er nemmere aflæse grafen kun med midnatsværdier især i august måned, hvor vægten svinger mest i løbet af dagen. 
 
@@ -169,14 +170,173 @@ Den anden ting, som gør det svært at aflæse den ægte vægt tilvækst pr. dag
   plot_time_weight(hive_data, title="Kun midnatsværdier")
 ```
 
+
+\pagebreak
+
 ## Dataanalyze
 
 
 ### Sammenligning af bistader
-I dette afsnit skal der sammenlignes to bistader fra den samen have. Formålet med sammenligned at vudere om den anden familie præstere bedre end den anden og forudse sygdomme 
-- Projektidéer
-- Sammenligne bistade2 1 og bestade 3
+I dette afsnit skal der sammenlignes to bistader fra den samen have (videre i afsnit bliver det kaldt Bistade1, Bistade3). Formålet med sammenligned at vudere om den anden familie præstere bedre end den anden og forudse sygdomme. Nedenfor kan man se to grafer af bistadet, som er behandlede for manuelle indgreb og kun midnatsværdier jf. Oprensning afsnit.  
+
+
+```{R echo=FALSE}
+# Hive 1
+hive1 <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
+periods_to_remove1 <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+hive1 <- manipulate_weight_deltas(hive_data=hive1, periods=periods_to_remove1)
+hive1 <- extract_midnight_weights(hive1)
+
+# Hive 3
+hive3 <- import_hive_data_csv("data/FHA_Stade3_MAJ_SEP")
+periods_to_remove3 <- read.table(file="data/stade3_period_to_ignore.csv", sep=",", header = TRUE)
+hive3 <- manipulate_weight_deltas(hive_data=hive3, periods=periods_to_remove3)
+hive3 <- extract_midnight_weights(hive3)
+
+
+# Plot
+min <- as.Date(head(hive1, 1)[,"hive_observation_time_local"])
+max <- as.Date(tail(hive1, 1)[,"hive_observation_time_local"])
+par(mar = c(5, 5, 3, 5))
+plot(hive3$hive_observation_time_local, hive3$hive_weight_kgs, type ="l", ylab = "Vægt",
+     main ="Vægtudvikling på bistade1 og bistade3", xlab = paste("Tid fra", min, "til", max, sep= " "),
+     col = "blue")
+lines(hive1$hive_observation_time_local, hive1$hive_weight_kgs,col="red")
+#par(new = TRUE)
+#plot(hive3$hive_observation_time_local, hive3$hive_weight_kgs, type = "l", xaxt = "n", yaxt = "n",
+#     ylab = "", xlab = "", col = "red") # , lty = 2
+#axis(side = 4)
+#mtext("Temperatur", side = 4, line = 3)
+legend("topleft", c("Bistade1", "Bistade3"),
+       col = c("red", "blue"), lty = c(1, 1))
+```
+
+#### Den daglige vægttilvækst
+For at gøre det nemmere at sammenligne bistader, blev der taget de daglige vægttvækst af disse bistader. Gennemsnit af de dagligt vægttilvækst for de respektive bistader er $\mu_1=0.1598374$(Bistade1) og $\mu_3=0.2188468$(Bistade3).
+
+```{r include=FALSE}
+hive1 <- hive1 %>%  mutate(daily_weight_delta = hive_weight_kgs -
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(daily_weight_delta = ifelse(is.na(daily_weight_delta), 0, daily_weight_delta))
+
+hive3 <- hive3 %>%  mutate(daily_weight_delta = hive_weight_kgs -
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(daily_weight_delta = ifelse(is.na(daily_weight_delta), 0, daily_weight_delta))
+```
+
+```{r}
+
+mean(hive1$daily_weight_delta)
+mean(hive3$daily_weight_delta)
+
+```
+
+
+
+```{R echo=FALSE}
+
+plot(hive1$hive_observation_time_local, hive1$daily_weight_delta, type="h",main="Daglig vægttilvækst", ylab="Vægt", xlab="", col="red")
+lines(hive3$hive_observation_time_local, hive3$daily_weight_delta,col="blue", lwd = 0.2, , lty=2, type="l")
+legend("topleft", c("Bistade1", "Bistade3"),
+       col = c("red", "blue"), lty = c(1, 1))
+```
+
+#### Hypotesetest.
+ Umiddelbart kan man se, at bistade 3 har lidt højere gennemsnit, men er det nok at konstatere forskellen mellem disse stader? For at undersøge det blev der udført et hypotesetest. 
+
+
+$$
+\begin{aligned}
+H_{0} \ : \ \mu_{1}= \mu_{3} \equiv \mu_{1}-\mu_{3}= 0 \\
+H_{1}\ : \ \mu_{1} \ne \mu_{3} \equiv \mu_{1}-\mu_{3}\ne 0
+\end{aligned}
+$$
+
+#### "Welch Two Sample t-test" 
+Nedenfor **kan der ikke konstateres en signifikant forskel i den daglige vægttilvækst mellem Bistade1 og Bistade3**, fordi $\text{p-value}$ (sandsynlighed at vi har fået denne forskel tilfældigt) er ret stor 0.5763  og 95% konfidensinterval inkluderer 0. Dvs. vi ikke kan afvise $H_0$, sem er, at de daglige vægttilvækst er ens. 
+
+```{R}
+t.test(hive1$daily_weight_delta, hive3$daily_weight_delta)
+```
+#### Konklusion på sammenligning
+Selv om der ikke kunne lade sig gøres at bevise signifikant forskellen på bistader ved at bruge t.test, er den forskellen som man kan sige på grafer er nok til biavlen til at konkludere, at der er en tydeligt eksampel på at bifamilier er forskellige, da stade3 producerer mest honning, og derfor ville han vælge Bistade3, som "mor" til en evt ny familie.  
+
+\pagebreak
+
+### Forudsigelse af vægten
+
+
+#### Formål 
+Den første formål er, at det er ret vigtigt for biavlen at overvåge om bierne har nok foder i en vinter periode. Det vil sige, at vægten falder gradvis i løbet af vinteren, men den skal ikke falde under en vist niveau, og biavlen skal gribe ind, hvis den gør. Så det kunne være en fordel til biavlen, at han kunne forudsige, hvornår den falder under dette niveau, så biavlen kunne fylde foderdepoter op. Hvis vi f.eks. tager Bistade1, så ligger dens minimumvægt på 15kg, da magasin, tavler og bier vejer omkring 12 kg. 
+Den anden formål kunne være at forudsige om familien har det godt om vinteren. Familien er god stand, hvis vægten falder konstant og som forventet, så det betyder at familien forbruger foder, men hvis vægten stopper med at falde, så det kan være en tegn, at familien er syg eller i det værste tilfælde uddødet.   
+
+
+
+#### Modellen
+Der blev benyttet `ets` funktion i `forecast` pakke til at lave en modellen, hvor der blev givet daglige vægtværdier fra 2019-11-01 til 2020-03-01. Denne modellen blev brugt i `forecast` funktionen til at forudsige vægten i hele marts måned. På figuren nedenfor kan man se de forudsagtede værdier. En blå linje betyder "Point Forecast", den mørke gråzone markerer 80% konfidensintervall, og den lyse gråzone markerer 95% konfidensinterval. 
+
+#### Backtesting 
+Jeg fik også lavet en backtesting, fordi vi kender jo de empiriske værdier for marts måned, så disse også blev plottet  på grafen, og man må sige at modellen blev opsat ret korrekt, da alle empiriske værdier ligger ind i 95% konfidensinterval interval. 
+
+
+```{R include=FALSE}
+hive1_winter <- import_hive_data(from = "'2019-11-01 00:00:00'", to="'2020-03-01 00:00:00'")
+```
+
+```{R echo=FALSE}
+
+
+hive1_winter <- extract_midnight_weights(hive1_winter)
+#plot_time_weight(hive1_winter)
+
+# Create timeseries object
+hive1_winter_weights <- hive1_winter$hive_weight_kgs
+thive1 <- ts(hive1_winter_weights, frequency=365, start=c(2019,305))
+
+# Create exponential forecasting model
+fit <- ets(thive1)
+forecast <- forecast(fit,31)
+plot(forecast, ylab = "Vægt", xaxt="n", col="red", main="Forudsigelse af vægtudvikling på Bistade1")
+
+# Find time for ploting
+hive1_winter$timeseries <- time(thive1) 
+localtime_timeseries <- hive1_winter[, c("hive_observation_time_local", "timeseries")]
+
+tsp <- attributes(thive1)$tsp
+
+df_forecast <-data.frame(forecast)
+df_forecast$times <- row.names(df_forecast)
+
+# Plot forecast
+axis(1, at = c(tsp[1],2019.915 , 2020.0, 2020.085, 2020.165 , as.numeric(tail(df_forecast$times,1))), 
+     labels = c("2019-11", "2019-12" , "2020-01", "2020-02","2020-03" ,"2020-04"))
+
+
+
+
+hive1_marts <- import_hive_data(from = "'2020-02-29 00:00:00'", to="'2020-03-31 00:00:00'")
+periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+hive1_marts <- manipulate_weight_deltas(hive_data=hive1_marts, periods=periods_to_remove)
+hive1_marts <- extract_midnight_weights(hive1_marts)
+thive1_marts <- ts(hive1_marts$hive_weight_kgs, frequency=366, start=c(2020,61))
+lines(thive1_marts, col="red")
+
+legend("topright", c("Empirisk", "Forudsigelse"),
+       col = c("red", "lightblue"), lty = c(1,1), lwd=c(1,2))
  
+ #seq(tsp[1], as.numeric(tail(df_forecast$times,1)), along = thive1)
+#axis(1, at = seq(tsp[1], as.numeric(tail(df_forecast$times,1)),by=0.2), 
+ #    labels = format(hive1_winter$hive_observation_time_local, "%Y-%m-%d"))
+
+
+#hive_snow <- import_hive_data(from = "'2020-03-28 00:00:00'", to="'2020-04-01 00:00:00'")
+
+```
+
+
+
+\pagebreak
+
 ## Bilag
  
 ### Bilag A: Opsummering af alle variabler i datasættet {#bilag_A}
@@ -192,7 +352,7 @@ summary(hive_data)
 ```
 
 ### Bilag B: Funktion til at udligne manualle indgreb{#bilag_B} 
-
+<!-- mmaybe do just one bilag with all implemented functions. -->
 ```R
 manipulate_weight_deltas <- function(hive_data, periods){
   library(dplyr)
