@@ -1,4 +1,4 @@
-import_hive_data <- function(from, to){
+import_hive_data <- function(from, to, raw=FALSE, all=FALSE){
   library(DBI)
   con <- dbConnect(RSQLite::SQLite(), "data/stade1.db")
   table_name <- dbListTables(con)
@@ -9,8 +9,64 @@ import_hive_data <- function(from, to){
   sendQuery <- dbSendQuery(con, select_period_with_intervention_query )
   #  hive_data <<- dbFetch(sendQuery) 
   hive_data <- dbFetch(sendQuery) 
-  hive_data$hive_observation_time_local <- strptime(hive_data$hive_observation_time_local, format = "%Y-%m-%d %H:%M:%S") #  Convert string to be recognized as date
+  if(!raw){
+    hive_data$hive_observation_time_local <- strptime(hive_data$hive_observation_time_local, format = "%Y-%m-%d %H:%M:%S") #  Convert string to be recognized as date
+  }
+  if(!all){
+    vars <- c("hive_observation_time_local", "hive_weight_kgs", "hive_temp_c", "hive_humidity", "ambient_temp_c","ambient_humidity", "ambient_luminance")
+    hive_data <- hive_data[vars]
+  }
   return (hive_data)  
+}
+
+
+# Function returns daily values, where a daily weight value is a midnight value and a daily tempreture is the highest tempreture
+import_hive_data_daily<- function(from, to){
+  to <- substr(to,2,20)
+  to <- paste("'", substr(as.POSIXlt(to)-1+60*60*24, 1, 19), "'", sep="") # Change from date to import one day before
+  hive_data <- import_hive_data(from, to)
+  
+  # Manipulate weight deltas
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  
+  # Find max daily temprature values
+  hive_data_temp <- hive_data %>% 
+    mutate( dt = as.Date(hive_observation_time_local)) %>% 
+    group_by(dt) %>%
+    filter(ambient_temp_c == max(ambient_temp_c)) %>%
+    ungroup() %>%
+    distinct(dt, .keep_all = TRUE) %>%
+    select(dt ,ambient_temp_c) # %>%
+   # mutate(ambient_temp_c =  dplyr::lag(ambient_temp_c)) %>% # Move max daily weight values one row backwards, so it fits daily weight 
+  #  slice(2:n())
+  
+  #hive_data_daily_after_change <- cbind(hive_data_daily_after_change, lead(hive_data_daily_after_change$hive_weight_kgs,1))
+  
+  hive_data_temp <- rename(hive_data_temp, ambient_temp_c_day_max = ambient_temp_c )
+  
+  # Find midnight weight values 
+  hive_data <- hive_data %>% 
+    mutate( dt = as.Date(hive_observation_time_local)) %>% 
+    group_by(dt) %>%
+    filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
+    ungroup() %>% 
+    mutate(hive_weight_kgs = lead(hive_weight_kgs))  %>%   # Move daily weight values one row backwards, so it fits other measurements 
+    select(!ambient_temp_c) %>%
+    slice(1:n()-1)
+  
+  hive_data <- rename(hive_data, hive_weight_kgs_daily = hive_weight_kgs)
+  # Merge midnight weight and max daily temp
+  hive_data <- merge(hive_data, hive_data_temp, by="dt")  
+  vars <- c("dt", "hive_weight_kgs_daily", "ambient_temp_c_day_max")
+
+  
+  # Remove dt column
+  #hive_data <- hive_data %>%
+  #  select(!dt)
+  
+  return(hive_data[vars])
+
 }
 
 import_hive_data_csv <- function(filename){
@@ -49,18 +105,18 @@ plot_time_weight <- function(hive_data, title){
 }
 
 plot_time_weight_temp <- function(hive_data){
-  min <- as.Date(head(hive_data, 1)[,4])
-  max <- as.Date(tail(hive_data, 1)[,4])
+  min <- as.Date(head(hive_data, 1)[,"dt"])
+  max <- as.Date(tail(hive_data, 1)[,"dt"])   
   par(mar = c(5, 5, 3, 5))
-  plot(hive_data$hive_observation_time_local, hive_data$hive_weight_kgs, type ="l", ylab = "Vægt",
+  plot(hive_data$dt, hive_data$hive_weight_kgs_daily, type ="l", ylab = "Vægt",
        main ="Sammenhæng mellem vægt og temperatur", xlab = paste("Tid fra", min, "til", max, sep= " "),
        col = "blue")
   par(new = TRUE)
-  plot(hive_data$hive_observation_time_local, hive_data$ambient_temp_c, type = "l", xaxt = "n", yaxt = "n",
+  plot(hive_data$dt, hive_data$ambient_temp_c_day_max, type = "l", xaxt = "n", yaxt = "n",
        ylab = "", xlab = "", col = "red") # , lty = 2
   axis(side = 4)
   mtext("Temperatur", side = 4, line = 3)
-  legend("topleft", c("Vægt", "Temperatur"),
+  legend("topright", c("Vægt", "Temperatur"),
          col = c("blue", "red"), lty = c(1, 1))
 }
 
@@ -92,15 +148,17 @@ manipulate_weight_deltas <- function(hive_data, periods){
 extract_midnight_weights <- function(hive_data){
   
   hive_data <- hive_data %>% 
-  mutate( dt = as.Date(hive_observation_time_local)) %>% 
-  group_by(dt) %>%
-  filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
-  ungroup() %>%
-  select(!dt)
+    mutate( dt = as.Date(hive_observation_time_local)) %>% 
+    group_by(dt) %>%
+    filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
+    ungroup() %>%
+    select(!dt)
   
   return(data.frame(hive_data))
   
 }
+
+
 
 return_period <- function(hive_data, from ,to){
   from <-  strptime(from, format = "%Y-%m-%d %H:%M:%S")

@@ -11,6 +11,52 @@ knitr::opts_chunk$set(echo = TRUE)
 
 \pagebreak
 
+
+### Sammenhæng mellem vægt og temperatur
+- I denne sektion prøver vi kigge på sammenhæng mellem temperatur og vægt. 
+- finde correlation
+- beskrive at det kan ikke bruges til noget
+
+
+```{r}
+from <- "'2020-05-01 00:00:00'"
+to<- "'2020-06-01 00:00:00'"
+hive_data_daily_after_change <- import_hive_data_daily(from, to)
+#plot(hive_data$hive_observation_time_local, hive_data$ambient_temp_c_prev_day_max, type='l')
+plot_time_weight_temp(hive_data_daily_after_change)
+
+
+hive_data_daily_2020_jun_merged <- hive_data_daily_2020_jun_merged %>%
+  mutate(Solskin_lag1 = dplyr::lag(Solskin, 1)) 
+hive_data_daily_2020_jun_merged[1,"Solskin_lag1"] <- 13.8
+
+
+hive_data_daily_2020_jun_merged <- hive_data_daily_2020_jun_merged %>%
+  mutate(Solskin_lag2 = dplyr::lag(Solskin, 2)) 
+hive_data_daily_2020_jun_merged[1,"Solskin_lag2"] <- 8.9
+hive_data_daily_2020_jun_merged[2,"Solskin_lag2"] <- 13.8
+
+hive_data_daily_2020_jun_merged <- hive_data_daily_2020_jun_merged %>%
+  mutate(Solskin_lag3 = dplyr::lag(Solskin, 3)) 
+hive_data_daily_2020_jun_merged[1,"Solskin_lag3"] <- 13.9
+hive_data_daily_2020_jun_merged[2,"Solskin_lag3"] <- 8.9
+hive_data_daily_2020_jun_merged[3,"Solskin_lag3"] <- 13.8
+  
+hive_data_daily_2020_jun_merged <- hive_data_daily_2020_jun_merged %>%
+  mutate(Solskin_lag4 = dplyr::lag(Solskin, 4)) %>%
+  mutate(Solskin_lag4 = ifelse(is.na(Solskin_lag4), 0, Solskin_lag4))
+hive_data_daily_2020_jun_merged[1,"Solskin_lag4"] <- 15.1
+hive_data_daily_2020_jun_merged[2,"Solskin_lag4"] <- 13.9
+hive_data_daily_2020_jun_merged[3,"Solskin_lag4"] <- 8.9
+hive_data_daily_2020_jun_merged[4,"Solskin_lag4"] <- 13.8
+  
+```
+
+
+- Det viste sig at Solskin har ikke så  meget corelation, men når man lagger, så correlation bliver større. Dvs. hvor meget indlydense har på dagens vægt, hvis solen skinnede meget 3 tre siden. 
+hvor meget vægten afhænger hvis der  f.eks. solen skinnede meget tre dag før. 
+
+
 ### Sammenhæng mellem vægt og temperatur
 Ud fra grafen nedenfor kan man fornemme at når tempraturen stiger så vægten gør også, men jeg er ikke sikker om man kan bruge denne sammenhæng mellem vægt og temperatur til noget???? Dvs. giver det overhovet mening til at kigge på correlation i time series??? Linear regression??? 
 
@@ -56,3 +102,55 @@ plot(hive3_plus12hours$hive_observation_time_local, hive3_plus12hours$daily_weig
 
 
 ```
+
+
+
+### Bilag B: Funktion til at udligne manualle indgreb{#bilag_B} 
+
+<!-- mmaybe do just one bilag with all implemented functions. -->
+```R
+manipulate_weight_deltas <- function(hive_data, periods){
+  library(dplyr)
+  # Add column weight_delta
+  hive_data <- hive_data %>%  mutate(weight_delta = hive_weight_kgs -
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+  
+  # Manipulate weight deltas
+  for(row in 1:nrow(periods)){
+    hive_data$weight_delta[hive_data$hive_observation_time_local> periods[row, "from"]  
+    & hive_data$hive_observation_time_local < periods[row, "to"]  ]
+    <- periods[row, "new_delta"]
+  }
+  
+  # Produce cumulative sums of weight deltas
+  hive_data <- hive_data %>% mutate(cum_delta=cumsum(weight_delta))
+  
+  # Produce new hive_weight_kgs from calculated cumukatiuve sums
+  hive_data <- hive_data %>% mutate(hive_weight_kgs = hive_weight_kgs[1]+ cum_delta)
+  
+  
+  # Remove the produced columns
+  drops <- c("weight_delta", "cum_delta")
+  hive_data <- hive_data[ , !(names(hive_data) %in% drops)]
+  return(hive_data)
+}
+```
+
+### Bilag C: Funktion til at trække midnatsværdier ud{#bilag_C} 
+
+```R
+extract_midnight_weights <- function(hive_data){
+  
+  hive_data <- hive_data %>% 
+  mutate( dt = as.Date(hive_observation_time_local)) %>% 
+  group_by(dt) %>%
+  filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
+  ungroup() %>%
+  select(!dt)
+  
+  return(data.frame(hive_data))
+  
+}
+```
+
