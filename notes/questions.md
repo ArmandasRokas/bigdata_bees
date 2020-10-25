@@ -1,0 +1,2 @@
+- Hvad er foskell mellem train(method="glm") og bare glm()
+- Jeg forstår ikke helt, når man bruger trControl. Justeres modellen i forhold til resultaterne fra f.eks. k fold cross validation eller det bruges kun til at overblik over vores modellen???? Muligvis kun få overblik, da jeg har prøvet med Johns example og man får de samme parameter, lige meget om bruger eller nej k-fold validation.  

@@ -127,6 +127,9 @@ manipulate_weight_deltas <- function(hive_data, periods){
   hive_data <- hive_data %>%  mutate(weight_delta = hive_weight_kgs - dplyr::lag(hive_weight_kgs)) %>%
   mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
   
+  periods$from <- strptime(periods$from, format = "%Y-%m-%d %H:%M:%S")
+  periods$to <- strptime(periods$to, format = "%Y-%m-%d %H:%M:%S")
+  
   # Manipulate weight deltas
   for(row in 1:nrow(periods)){
     hive_data$weight_delta[hive_data$hive_observation_time_local> periods[row, "from"]  & hive_data$hive_observation_time_local < periods[row, "to"]  ] <- periods[row, "new_delta"]
