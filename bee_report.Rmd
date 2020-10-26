@@ -29,7 +29,12 @@ setwd("/home/arm/Projects/bigdata_bees")
 \pagebreak
 \pagenumbering{arabic} 
 
-## Introduktion
+\colorbox{h}{TODO}
+- Problemstilling i startten, hvad er formål ved projekten
+- Kapitel nummer
+- Figur nummer osv.
+
+## Introduktion(dette måske lidt mere Data beskrivelse)
 Dette rapport beskriver databehandling af data fra et bistade.  Dataen samles via Raspbarry Pi, som er tilknyttet til forskellige sensorer, som måler vægten, fugtighed, lys osv. (hele listen af variabler kan man se i [Variabler](#variabler) afsnit), og gemmes både lokalt på SQLite databasen og sendes til HiveTool.net platformen. 
 
 
@@ -425,7 +430,8 @@ hive_data_2019_jun.validate$weight_delta_direction <-
 
 #### Modellen
 
-- Der blev benyttet "Logistic regression" til at lave modellen, hvor der bruges `glm` function. Fra en opsummering nedenfor kan vi konkludere, at 
+- Der blev benyttet "Logistic regression" til at lave modellen, hvor der bruges `glm` function. Fra en opsummering nedenfor kan vi konkludere, at https://www.guru99.com/r-generalized-linear-model.html
+- https://www.datacamp.com/community/tutorials/logistic-regression-R
 
 ```{r }
 set.seed(12345)  
