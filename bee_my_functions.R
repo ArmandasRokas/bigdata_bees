@@ -20,10 +20,13 @@ import_hive_data <- function(from, to, raw=FALSE, all=FALSE){
 }
 
 
-# Function returns daily values, where a daily weight value is a midnight value and a daily tempreture is the highest tempreture
+# Function returns hive data with daily values
+#, where a daily weight value is a midnight value 
+# (answers a question: what was the weight of the end of the given day).
+#  Daily tempreture is the highest tempreture of the given day
 import_hive_data_daily<- function(from, to){
   to <- substr(to,2,20)
-  to <- paste("'", substr(as.POSIXlt(to)-1+60*60*24, 1, 19), "'", sep="") # Change from date to import one day before
+  to <- paste("'", substr(as.POSIXlt(to)-1+60*60*24, 1, 19), "'", sep="") # Change "to date" to import one day after,
   hive_data <- import_hive_data(from, to)
   
   # Manipulate weight deltas
@@ -37,11 +40,7 @@ import_hive_data_daily<- function(from, to){
     filter(ambient_temp_c == max(ambient_temp_c)) %>%
     ungroup() %>%
     distinct(dt, .keep_all = TRUE) %>%
-    select(dt ,ambient_temp_c) # %>%
-   # mutate(ambient_temp_c =  dplyr::lag(ambient_temp_c)) %>% # Move max daily weight values one row backwards, so it fits daily weight 
-  #  slice(2:n())
-  
-  #hive_data_daily_after_change <- cbind(hive_data_daily_after_change, lead(hive_data_daily_after_change$hive_weight_kgs,1))
+    select(dt ,ambient_temp_c)
   
   hive_data_temp <- rename(hive_data_temp, ambient_temp_c_day_max = ambient_temp_c )
   
@@ -52,6 +51,7 @@ import_hive_data_daily<- function(from, to){
     filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
     ungroup() %>% 
     mutate(hive_weight_kgs = lead(hive_weight_kgs))  %>%   # Move daily weight values one row backwards, so it fits other measurements 
+    # because orginally it is the weight from the first measurement after 00:00, but this weight belongs to the date before midnight
     select(!ambient_temp_c) %>%
     slice(1:n()-1)
   
@@ -59,11 +59,6 @@ import_hive_data_daily<- function(from, to){
   # Merge midnight weight and max daily temp
   hive_data <- merge(hive_data, hive_data_temp, by="dt")  
   vars <- c("dt", "hive_weight_kgs_daily", "ambient_temp_c_day_max")
-
-  
-  # Remove dt column
-  #hive_data <- hive_data %>%
-  #  select(!dt)
   
   return(hive_data[vars])
 
@@ -108,16 +103,16 @@ plot_time_weight_temp <- function(hive_data){
   min <- as.Date(head(hive_data, 1)[,"dt"])
   max <- as.Date(tail(hive_data, 1)[,"dt"])   
   par(mar = c(5, 5, 3, 5))
-  plot(hive_data$dt, hive_data$hive_weight_kgs_daily, type ="l", ylab = "Vægt",
+  plot(hive_data$dt, hive_data$hive_weight_kgs_daily, type ="l", ylab = "Vægt", lty=2,
        main ="Sammenhæng mellem vægt og temperatur", xlab = paste("Tid fra", min, "til", max, sep= " "),
-       col = "blue")
+       col = "grey")
   par(new = TRUE)
   plot(hive_data$dt, hive_data$ambient_temp_c_day_max, type = "l", xaxt = "n", yaxt = "n",
-       ylab = "", xlab = "", col = "red") # , lty = 2
+       ylab = "", xlab = "", col = "black") # , lty = 2
   axis(side = 4)
   mtext("Temperatur", side = 4, line = 3)
-  legend("topright", c("Vægt", "Temperatur"),
-         col = c("blue", "red"), lty = c(1, 1))
+  legend("topleft", c("Vægt", "Temperatur"),
+         col = c("grey", "black"), lty = c(2, 1))
 }
 
 
@@ -138,7 +133,7 @@ manipulate_weight_deltas <- function(hive_data, periods){
   # Produce cumulative sums of weight deltas
   hive_data <- hive_data %>% mutate(cum_delta=cumsum(weight_delta))
   
-  # Produce new hive_weight_kgs from calculated cumukatiuve sums
+  # Produce new hive_weight_kgs from calculated cumulative sums
   hive_data <- hive_data %>% mutate(hive_weight_kgs = hive_weight_kgs[1]+ cum_delta)
   
   

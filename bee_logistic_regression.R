@@ -79,10 +79,6 @@ logit.perf
 
 
 
-####### Predict with classical decision tree. ####### 
-
-
-
 
 
 
@@ -115,3 +111,84 @@ logit.perf # Results is exactly the same as just by using glm()
 # UP      3 17
 
 
+
+
+####### Predict with classical decision tree. ####### 
+
+library(rpart)
+dtree <- rpart(weight_delta_direction~ambient_temp_c_day_max, data=hive_data_2020_jun.train, method="class", parms=list(split="information"))
+dtree <- rpart(weight_delta_direction~ ambient_temp_c_day_max + pressure, data=hive_data_2020_jun.train, method="class", parms=list(split="information"),
+               control = rpart.control("minsplit" = 8))
+dtree$cptable
+
+library(rpart.plot)
+
+prp(dtree, type=2, extra=104, fallen.leaves = TRUE)
+
+
+dtree.pred <- predict(dtree, hive_data_2019_jun.validate, type="class" )
+dtree.pref <- table(hive_data_2019_jun.validate$weight_delta_direction, dtree.pred, dnn=c("Actual", "Predicted"))
+dtree.pref
+
+# Virkeligt mærkeligt at den fravælger tempreture, og bruger pressure som den første
+
+
+####### Conditional inference trees #######
+install.packages("party")
+library(party)
+fit.ctree <- ctree(weight_delta_direction~ .,data=hive_data_2020_jun.train,  controls = ctree_control(mincriterion = 0.01, minsplit= 1, minbucket = 1))
+fit.ctree
+plot(fit.ctree)
+
+ctree.pred <- predict(fit.ctree, hive_data_2019_jun.validate, type="response" )
+ctree.pref <- table(hive_data_2019_jun.validate$weight_delta_direction, ctree.pred, dnn=c("Actual", "Predicted"))
+ctree.pref
+confusionMatrix(hive_data_2019_jun.validate$weight_delta_direction, ctree.pred) 
+?ctree
+# Until now the best results. Precipitation has very low p-value, but I would argue that it is important parameter that it bees do not fly when it rains heavely. 
+# the most intresting thing, that pressure is one of the most significant variables. Is this just considence or there is documents some relationhsip there on the internet? 
+# Pressure http://www.dave-cushman.net/bee/weathersense.html#:~:text=Honey%20bees%20can%20sense%20changes,directly%20linked%20to%20the%20storms.&text=So%2C%20if%20the%20wind%20is,a%20storm%20on%20the%20way.
+#Predicted
+#Actual DOWN UP
+#DOWN    6  4
+#UP      0 20
+
+# Manual kfolds
+k<- 5
+folds<- sample(rep_len(1:k, nrow(hive_data_2020_jun.train)))
+folds
+table(folds)
+
+Acc=c() # define accuracy vector
+for(i in 1:k){
+  Fit.ctree=ctree(weight_delta_direction~ .,data=hive_data_2020_jun.train[folds!=i,],  controls = ctree_control(mincriterion = 0.01, minsplit= 0, minbucket = 0))  # fit model on all folds except fold i
+  pred=predict(Fit.ctree,newdata=hive_data_2020_jun.train[folds==i,])  # predict class for fold i
+  Acc[i]=sum(pred==hive_data_2020_jun.train$weight_delta_direction[folds==i])/length(hive_data_2020_jun.train$weight_delta_direction[folds==i]) # accuracy for fold i
+}
+Acc
+mean(Acc)
+# Result not so impressive from K folds, so maybe not include into the report. 
+
+# k fold http://www.just.edu.jo/~haalshraideh/Courses/IE759/DT3.html
+fit <- train(weight_delta_direction~ . , data=hive_data_2020_jun.train, method="ctree", controls = ctree_control(mincriterion = 0.01, minsplit= 0, minbucket = 0), trControl=trainControl(method="cv", number=5), tuneLength=10 ) 
+ctree.kfold.pred <- predict(fit, newData=hive_data_2019_jun.validate )
+ctree.pref <- table(hive_data_2019_jun.validate$weight_delta_direction, ctree.kfold.pred, dnn=c("Actual", "Predicted"))
+ctree.pref
+
+plot(fit)
+fit
+fit$finalModel
+
+
+
+
+
+
+fit.ctree <- ctree(weight_delta_direction~ .,data=hive_data_2019_jun.validate,  controls = ctree_control(mincriterion = 0.70, minsplit= 0, minbucket = 0))
+plot(fit.ctree)
+
+ctree.pred <- predict(fit.ctree,hive_data_2020_jun.train , type="response" )
+ctree.pref <- table(hive_data_2020_jun.train$weight_delta_direction, ctree.pred, dnn=c("Actual", "Predicted"))
+ctree.pref
+
+confusionMatrix(hive_data_2020_jun.train$weight_delta_direction, ctree.pred) 

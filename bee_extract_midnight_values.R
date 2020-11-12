@@ -139,3 +139,129 @@ import_hive_data_daily<- function(from, to){
   return(hive_data)
   
 }
+
+
+
+
+hive_data_2020_jun.train <- import_hive_data_daily(from = "'2020-05-31 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+# Extract weight deltas
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%  mutate(weight_delta = 
+  hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta)) %>%
+  slice(2:n())
+# Categorize weight delta directions
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%
+  mutate(weight_delta_direction = ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2020_jun.train$weight_delta_direction <- factor(hive_data_2020_jun.train$weight_delta_direction) 
+# Merge with weather data
+weather_data_furesoe_2020_jun <- read.table(file="data/furesø-kommune-juni-2020.csv", sep="," ,header = TRUE)
+weather_data_furesoe_2020_jun$dt <- as.Date(weather_data_furesoe_2020_jun$dt)
+hive_data_2020_jun.train <- merge(hive_data_2020_jun.train, weather_data_furesoe_2020_jun, by="dt")  
+# Remove not used columns
+hive_data_2020_jun.train <- select(hive_data_2020_jun.train, !c(hive_weight_kgs_daily,weight_delta, dt))
+
+
+
+
+#################### Original ###################
+hive_data_2020_jun.train <- import_hive_data_daily(from = "'2020-06-01 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+weather_data_furesoe_2020_jun <- read.table(file="data/furesø-kommune-juni-2020.csv", sep="," ,header = TRUE)
+weather_data_furesoe_2020_jun$dt <- as.Date(weather_data_furesoe_2020_jun$dt)
+hive_data_2020_jun.train <- merge(hive_data_2020_jun.train, weather_data_furesoe_2020_jun, by="dt")  
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%  mutate(weight_delta = 
+                                                                   hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+# weightdelta of the first day could not be calculated, 
+# because the prior day is not available in the current fetch dataset, 
+# so the weight delta is calculated and inserted manually. 
+hive_data_2020_jun.train[1,"weight_delta"] <- 0.81 
+hive_data_2020_jun.train <- select(hive_data_2020_jun.train, !hive_weight_kgs_daily)
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%
+  mutate(weight_delta_direction = ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2020_jun.train <- select(hive_data_2020_jun.train, !weight_delta)
+hive_data_2020_jun.train <- select(hive_data_2020_jun.train, !dt)
+hive_data_2020_jun.train$weight_delta_direction <- factor(hive_data_2020_jun.train$weight_delta_direction) 
+
+
+
+
+
+
+
+
+
+
+
+
+
+hive_data_2019_jun.validate <- import_hive_data_daily(from = "'2019-05-31 00:00:00'", to="'2019-07-01 00:00:00'")
+weather_data_furesoe_2019_jun <- read.table(file="data/furesø-kommune-juni-2019.csv", sep="," ,header = TRUE)
+weather_data_furesoe_2019_jun$dt <- as.Date(weather_data_furesoe_2019_jun$dt)
+hive_data_2019_jun.validate <- merge(hive_data_2019_jun.validate, weather_data_furesoe_2019_jun, by="dt")  
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%  mutate(weight_delta = hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+hive_data_2019_jun.validate[1,"weight_delta"] <- 0.12
+
+hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !hive_weight_kgs_daily)
+
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%
+  mutate(weight_delta_direction =  ifelse(weight_delta<0, "DOWN", "UP"))
+# TODO finde en måde, hvordan jeg kan gøre select på en linje
+hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !c(weight_delta,dt))
+hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !dt)
+
+hive_data_2019_jun.validate$weight_delta_direction <-factor(hive_data_2019_jun.validate$weight_delta_direction) 
+
+
+
+####### Original
+
+# Prepare validate data
+hive_data_2019_jun.validate <- import_hive_data_daily(from = "'2019-06-01 00:00:00'", to="'2019-07-01 00:00:00'")
+weather_data_furesoe_2019_jun <- read.table(file="data/furesø-kommune-juni-2019.csv", sep="," ,header = TRUE)
+weather_data_furesoe_2019_jun$dt <- as.Date(weather_data_furesoe_2019_jun$dt)
+hive_data_2019_jun.validate <- merge(hive_data_2019_jun.validate, weather_data_furesoe_2019_jun, by="dt")  
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%  mutate(weight_delta = hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+hive_data_2019_jun.validate[1,"weight_delta"] <- 0.12
+
+hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !hive_weight_kgs_daily)
+
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%
+  mutate(weight_delta_direction =  ifelse(weight_delta<0, "DOWN", "UP"))
+# TODO finde en måde, hvordan jeg kan gøre select på en linje
+hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !c(weight_delta,dt))
+#hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !dt)
+
+hive_data_2019_jun.validate$weight_delta_direction <-factor(hive_data_2019_jun.validate$weight_delta_direction) 
+
+
+
+### Modificated
+
+# Prepare validate data
+hive_data_2019_jun.validate <- import_hive_data_daily(from = "'2019-05-31 00:00:00'", to="'2019-07-01 00:00:00'")
+# Extract weight deltas
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%  mutate(weight_delta = hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta)) %>%
+  slice(2:n())
+# # Categorize weight delta directions
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%
+  mutate(weight_delta_direction =  ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2019_jun.validate$weight_delta_direction <-factor(hive_data_2019_jun.validate$weight_delta_direction) 
+# Merge with weather data
+weather_data_furesoe_2019_jun <- read.table(file="data/furesø-kommune-juni-2019.csv", sep="," ,header = TRUE)
+weather_data_furesoe_2019_jun$dt <- as.Date(weather_data_furesoe_2019_jun$dt)
+hive_data_2019_jun.validate <- merge(hive_data_2019_jun.validate, weather_data_furesoe_2019_jun, by="dt")  
+# Remove not used columns
+hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !c(hive_weight_kgs_daily,weight_delta, dt))
+
+
+
+
+
+
+
+

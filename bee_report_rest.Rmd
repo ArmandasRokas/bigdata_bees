@@ -12,6 +12,100 @@ knitr::opts_chunk$set(echo = TRUE)
 \pagebreak
 
 
+### Ligistic regression 
+
+
+\colorbox{h}{Kan det være, at jeg får en fejl, når jeg laver en modellen, fordi data er meget skewed? }
+
+\colorbox{h}{Jeg har også prøvet at normalisere, men jeg får det samme...}
+
+\colorbox{h}{Hvad med, hvis jeg definerer grænseværdier selv. Dvs om det regnet eller det var solen hele dag. }
+
+```{R , fig.height=8, fig.width=8}
+par(mfrow=c(3,2))
+hist(weather_data_furesoe_jun$precipitation, main="precipitation")
+hist(weather_data_furesoe_jun$wind, main="wind")
+hist(weather_data_furesoe_jun$drought, main="drought")
+hist(weather_data_furesoe_jun$humidity, main="humidity")
+hist(weather_data_furesoe_jun$pressure, main="pressure")
+hist(weather_data_furesoe_jun$sun, main="sun")
+```
+
+```{R echo=FALSE}
+hive_data_2020_jun <- import_hive_data_daily(from = "'2020-06-01 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+ggplot(hive_data_2020_jun,aes(x = dt,y =ambient_temp_c_day_max)) + 
+  geom_point(aes(colour = ambient_temp_c_day_max)) +
+  scale_colour_gradient2(low = "blue", mid = "green" , high = "red", midpoint = 21) + 
+  #geom_smooth(color = "red",size = 1) +
+  scale_y_continuous(limits = c(12,30), breaks = seq(5,30,5)) +
+  ggtitle ("Daily average temperature") +
+  xlab("Date") +  ylab ("Average Temperature ( ºC )")
+```
+
+#### Modellen
+
+
+- Der blev benyttet "Logistic regression" til at lave modellen, hvor der bruges `glm` function. Fra en opsummering nedenfor kan vi konkludere, at 
+<!-- Nørde igennem efter aflevering
+https://www.guru99.com/r-generalized-linear-model.html
+https://www.datacamp.com/community/tutorials/logistic-regression-R
+-->
+
+```{r }
+set.seed(12345)  
+model <- train(weight_delta_direction~ambient_temp_c_day_max, data = hive_data_2020_jun.train,   
+                 method = "glm",  
+                 trControl = trainControl(method = "cv",number = 5)  )
+summary(model)
+```
+
+Som man kan se fra modelberksivelsen ovenfor. Beskrive parameter, p value
+
+
+- Hvad betyder Estimate std. in glm???
+
+\colorbox{h}{Jeg kan ikke lige overskue, hvad betyder coefficients her?}
+
+\colorbox{h}{Dvs. i linær regression, hvis vi øger med så meget predictor variable, så}
+
+\colorbox{h}{So vil det øge med så meget outcome. Men hvad med her?}
+
+"coefficients that do differs from zero at the p<.10 level. "
+
+#### Validering
+
+kk
+
+```{r }
+prob <- predict(model, hive_data_2019_jun.validate)
+logit.perf <- table(hive_data_2019_jun.validate$weight_delta_direction, prob, dnn=c("Actual", "Predicted"))
+logit.perf
+```
+
+
+
+
+- En fejl, hvis jeg bruger alle variabler
+- Er der nok med en variablet med til modellen?
+- Hvorfor weight_delta og hive_weight_kgs har så lille correlation?
+
+```
+        Predicted
+Actual DOWN UP
+  DOWN    6  4
+  UP      3 17
+```
+
+- Der blev brugt bl.a. en "5 fold cross validation" til at estimere, hvor præcist modellen vil estimere i fremtiden. Fra 5-cross validation, vi kan see at modellen har 0.8 nøjagtighed, som er lidt større end resultater fra ved at bruge et års tidlegere data, hvor modellen forudsat 23 rigtigt ud af 30, hivlket giver ca. 0.76 nøjagtighed.
+
+#### Konklusion på logistic regression
+- Selv om logistic regression forudsiger ret korrekt, blev der valgt at gå videre og bruger andre værktæj. Mest fordi der havde lyst til at bruge også andre variable, hvilket ikke kunne lade sig gøres 
+
+\pagebreak
+
+
+
 ### Sammenhæng mellem vægt og temperatur
 - I denne sektion prøver vi kigge på sammenhæng mellem temperatur og vægt. 
 - finde correlation
@@ -154,3 +248,85 @@ extract_midnight_weights <- function(hive_data){
 }
 ```
 
+
+## Databehandling
+
+Nedenfor er en liste af mulig årsager til de misvisnende vægtmålinger : 
+
+
+Grunden at der skulle laves noget dataopresning var at den rå data, som blev fået fra bistader,  er ikke helt præcis. 
+Det var nødt 
+Før der kunne udføres noget analyse på dataen, så skulle den først behandles, fordi den rå data er lidt misvisinge. Der er flere årsager til at det er svært at aflæse en eksakt tilvækst af vægten. De mulige årsager kunne være:
+
+  - Manuelt indgreb
+  - Nedbør 
+  - Biernes daglig rutine
+  
+Disse er beskrevet videre i afsnittet udtaget nedbør, da dette giver minimalt støj og der er ikke umiddelbart behov til at tage hensyn til det. 
+ 
+<!-- https://en.wikipedia.org/wiki/Data_cleansing --> 
+
+## Manuelle indgreb 
+Manuelle indgreb på bistadet medfører de største udsving i vægten, men som ikke forårsagers af bierne, så disse skulle fjernes før man kunne påbegynde noget andet. Eksempler på manuelle indgreb kunne være:
+
+ - Påsætte/fjerne magasin
+ - Andre mindre manipulationer
+
+De fleste manual indgreb følge efter afbrydelser i timestamps. Det kan forklares med at en biavler slukker optagelse af målinger, når biavlen laver et manualt indgreb, men når han tænder optagelsen, laver den en stor udsving i vægten i en eller anden retning i for hold hvad han fik lavet. (Bemærk, man behøver ikke at tage hensyn til det manglende timestamps, fordi alt videre analyse er gennemført på middnats værdier, som ikke er manglende).  
+
+Så derfor blev der startede med at finde deltaerne mellem vægtene før arbrydelser i timestmaps og efter, dvs. huler i datasættet. En liste over det kan man se nedenfor:
+ 
+```{r echo=FALSE}
+
+
+hive_data <- hive_data %>%  mutate(timestamp_delta = hive_observation_time_local -
+  dplyr::lag(hive_observation_time_local)) %>% 
+  mutate(timestamp_delta = ifelse(is.na(timestamp_delta), 0, timestamp_delta))
+
+hive_data <- hive_data %>%  mutate(weight_delta = hive_weight_kgs -
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+
+hive_data[which(hive_data[,"timestamp_delta"] > 7 & abs(hive_data[,"weight_delta"]) > 2 ), 
+          c("hive_observation_time_local", "weight_delta")]
+```
+
+- Man kan se at ikke alle huler følger efter en stor udsving i vægten, men det kunne være en mulig løsning til at fjerne alligevel alle, hvis man har lyst til at automatisere databehandling. Den anden mulighed, som er ønsket af projektstilleren at have mulighed at definere selv perioder, som skal ignoreres.  
+
+```{r echo=FALSE}
+hive_data <- import_hive_data(from = "'2020-05-24 00:00:00'", to="'2020-06-01 00:00:00'")
+plot_time_weight(hive_data)
+```
+
+```{R include=FALSE}
+hive_data <- import_hive_data(from = "'2020-05-24 00:00:00'", to="'2020-06-01 00:00:00'")
+
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  
+  plot_time_weight(hive_data, title="Den behandlede data")
+
+```
+
+
+
+```{R include=FALSE}
+ hive_data <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
+  par(mfrow=c(1,2))
+  plot_time_weight(hive_data, title="Den oprindelige data")
+  
+  
+
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  
+  
+  plot_time_weight(hive_data, title="Den behandlede data")
+
+```
+
+Graffen til venstre på Figur \ref{ifg:manualingreb} visulizeer   er grafen over vægten omkring dette tidspunkt.
+
+Graffen visulisere "manualt indgreb" på tidspunktet 2020-05-28 12:25:01
+
+\pagebreak

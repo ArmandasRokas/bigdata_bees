@@ -1,0 +1,6 @@
+{
+     "id":"unique_string-1219205",
+     "type":"book",
+     "title":"Book Title",
+     "arbitraryField":"An example arbitrary field with arbitrary data. This field will be ignored by the CSL Processor."
+}
