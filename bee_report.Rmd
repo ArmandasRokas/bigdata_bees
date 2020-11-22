@@ -2,7 +2,7 @@
 title: "Bistader"
 subtitle: "62527 Big data E20"
 author: "Armandas Rokas(s185144)"
-date: 11/09 2020  \pagebreak
+date: 22/11 2020  \pagebreak
 bibliography: bibliography.bib
 output:
   pdf_document:
@@ -18,7 +18,7 @@ header-includes:
   - \pagenumbering{gobble} 
   - \usepackage{titling}
   - \pretitle{\begin{center}
-    \includegraphics[width=2in,height=2in]{DTU_Logo.jpg}\LARGE\\}
+    \includegraphics[width=2in,height=2in]{ic_beeware_launcher_logo-web.png}\LARGE\\}
   - \posttitle{\end{center}}    
   - \pagebreak
 ---
@@ -46,7 +46,7 @@ setwd("/home/arm/Projects/bigdata_bees")
 
 # Problemformulering
 
-I dette projekt skulle der arbejdes på dataen fra bistadet. Et helt overordnet formål ved dette er at hjælpe biavlen med driften af hans bifamilier. Mere præcist kommer projektet at udbrede sig i tre forskellige spektre. Først skal der sammenlignes to forskellige bistader fra den same have til at finde ud om den ene bifamilie præstere bedre end den anden. Bagefter forudsiges der vægten i vinterperdiode for at forebygge evt. sult i bifamilien.  Og til sidst klassificeres der vægttivækst i sommerperioden med formål at advare biavlen, når en bifamilien evt. er syg. 
+I dette projekt skulle der arbejdes på dataen fra bistadet. Et helt overordnet formål ved dette er at hjælpe biavlen med driften af hans bifamilier. Mere præcist kommer projektet at udbrede sig i tre forskellige spektre. Først skal der sammenlignes to forskellige bistader fra den same have til at finde ud om den ene bifamilie præstere bedre end den anden. Bagefter forudsiges der vægten i vinterperdiode for at forebygge evt. sult i bifamilien.  Og til sidst klassificeres der vægttivækst i sommerperioden med et formål at advare biavlen, når en bifamilien evt. er syg. 
 
 
 # Data beskrivelse
@@ -259,8 +259,8 @@ I den forudgående sektion blev der fundet at bistade3 umiddelbart har lidt høj
 
 $$
 \begin{aligned}
-H_{0} \ : \ \mu_{1}= \mu_{3} \equiv \mu_{1}-\mu_{3}= 0 \\
-H_{1}\ : \ \mu_{1} \ne \mu_{3} \equiv \mu_{1}-\mu_{3}\ne 0
+H_{0} \ : \ \mu_{1}= \mu_{3} \\
+H_{1}\ : \ \mu_{1} \ne \mu_{3}
 \end{aligned}
 $$
 
@@ -276,7 +276,7 @@ Selv om der ikke kunne lade sig gøres at bevise signifikant forskellen på bist
 
 \pagebreak
 
-# Forudsigelse af vægten i en vinterperiode
+# Forudsigelse af vægten i vinterperioden
 
 
 ## Formål 
