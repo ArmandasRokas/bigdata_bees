@@ -4,6 +4,7 @@ subtitle: "62527 Big data E20"
 author: "Armandas Rokas(s185144)"
 date: 22/11 2020  \pagebreak
 bibliography: bibliography.bib
+csl: university-college-lillebaelt-apa.csl
 output:
   pdf_document:
     toc: yes
@@ -44,6 +45,15 @@ setwd("/home/arm/Projects/bigdata_bees")
 \pagebreak
 \pagenumbering{arabic} 
 
+<!-- TODO:
+  - Define metrics in plots and text. 
+  - More references.
+  - Fix Mine funktioner
+  - Argumentere, om måske random forest kunne være en løsning
+  - Lave pænere grafer.
+-->
+
+
 # Problemformulering
 
 I dette projekt skulle der arbejdes på dataen fra bistadet. Et helt overordnet formål ved dette er at hjælpe biavlen med driften af hans bifamilier. Mere præcist kommer projektet at udbrede sig i tre forskellige spektre. Først skal der sammenlignes to forskellige bistader fra den same have til at finde ud om den ene bifamilie præstere bedre end den anden. Bagefter forudsiges der vægten i vinterperdiode for at forebygge evt. sult i bifamilien.  Og til sidst klassificeres der vægttivækst i sommerperioden med et formål at advare biavlen, når en bifamilien evt. er syg. 
@@ -54,7 +64,7 @@ I dette projekt skulle der arbejdes på dataen fra bistadet. Et helt overordnet 
 Før kommer vi i gang med datanalysen, skal der lige først beskrive, hvordan dataen ser ud. Så for det første samles Dataen via Raspbarry Pi, som er tilknyttet til forskellige sensorer, som måler bistadets vægt, fugtighed, lys osv. (hele listen af variabler kan man se i [Variabler](#variabler) afsnit), og gemmes både lokalt på SQLite databasen og sendes til skyen på HiveTool.net platformen. 
 
 ## Import af data
-Der blev valgt at bruge SQLite til at indlæse dataen til R, da det er lidt svært at få fat i dataen på HiveTool.net, især hvis man skal bruge en lang tidsperiode. For at indlæse dataen fra SQLite blev der skrevet en `import_hive_data` funktion, hvis koden kan findes i [Bilag B](#bilab_B)). 
+Der blev valgt at bruge SQLite til at indlæse dataen til R, da det er lidt svært at få fat i dataen på HiveTool.net, især hvis man skal bruge en lang tidsperiode. For at indlæse dataen fra SQLite blev der skrevet en `import_hive_data` funktion, hvis koden kan findes i [Bilag B](#bilab_B). 
 
 ## Variabler {#variabler}
 
@@ -199,7 +209,7 @@ hive3 <- extract_midnight_weights(hive3)
 min <- as.Date(head(hive1, 1)[,"hive_observation_time_local"])
 max <- as.Date(tail(hive1, 1)[,"hive_observation_time_local"])
 par(mar = c(5, 5, 3, 5))
-plot(hive3$hive_observation_time_local, hive3$hive_weight_kgs, type ="l", ylab = "Vægt",
+plot(hive3$hive_observation_time_local, hive3$hive_weight_kgs, type ="l", ylab = "Vægt(kg)",
      main ="Vægtudvikling på bistade1 og bistade3", xlab = paste("Tid fra", min, "til", max, sep= " "),
      col = "blue")
 lines(hive1$hive_observation_time_local, hive1$hive_weight_kgs,col="red")
@@ -244,7 +254,7 @@ mean(hive3$daily_weight_delta)
 
 ```{R echo=FALSE,  fig.cap="\\label{fig:weight_delta} Daglig vægttilvækst af bistade1 og bistade3 fra 2020-05-01 til 2020-08-31"}
 
-plot(hive1$hive_observation_time_local, hive1$daily_weight_delta, type="h",main="Daglig vægttilvækst", ylab="Vægt", xlab="", col="red")
+plot(hive1$hive_observation_time_local, hive1$daily_weight_delta, type="h",main="Daglig vægttilvækst", ylab="Vægt(kg)", xlab="", col="red")
 lines(hive3$hive_observation_time_local, hive3$daily_weight_delta,col="blue", lwd = 0.2, , lty=2, type="l")
 legend("topleft", c("Bistade1", "Bistade3"),
        col = c("red", "blue"), lty = c(1, 1))
@@ -266,7 +276,7 @@ $$
 
 **Welch Two Sample t-test**
 
-Nedenfor i outputtet fra `t-test` **kan der ikke konstateres en signifikant forskel i den daglige vægttilvækst mellem Bistade1 og Bistade3**, fordi $\text{p-value}$ (sandsynlighed at vi har fået denne forskel tilfældigt) er ret stor 0.5763  og 95% konfidensinterval inkluderer 0. Dvs. vi ikke kan afvise $H_0$, som er, at de daglige vægttilvækst er ens. 
+Nedenfor i outputtet fra `t-test` **kan der ikke konstateres en signifikant forskel i den daglige vægttilvækst mellem Bistade1 og Bistade3**, fordi $\text{p-value}$ (sandsynlighed at vi har fået denne forskel tilfældigt) er ret stor 0.5763  og 95% konfidensinterval inkluderer 0. Dvs. vi ikke kan afvise $H_0$, som er, at de daglige vægttilvækst er ens. [@brockhoff]
 
 ```{R}
 t.test(hive1$daily_weight_delta, hive3$daily_weight_delta)
@@ -291,9 +301,7 @@ Der er to formål, hvorfor biavlen skal overvåge og evt. forudsige vægten i en
 
 ## Modellen
 
-Som man kan sige i R kodeudklippet nedenfor blev der benyttet `ets` funktion i `forecast` pakke til at lave en modellen, hvor der blev givet daglige vægtværdier fra 2019-11-01 til 2020-03-01. `model="ZZZ"` betyder, at funktionen selv skal find ud, om fejlene er additive eller multiplikative, om der er tendenser og til sidst om der er sæsoner i tidserien. Fra outputtet nedenfor kan man se, at der blev udregnet `M,A,N`, hvilket betydet, at fejlene er multiplikative, at tendensen er additiv, og at der er ingen sæsoner i denne tidsserie[@habacoff, s. 354].
-
-og sidst om der er  der er fejl Der blev også givet at `ets` funktion skal selv finde ud, hvilken type af fejl, om der er trend og er der sæsoner. . Fra en opsummering af modellen kan man se at der blev fundet ud af, at  
+Som man kan sige i R kodeudklippet nedenfor blev der benyttet `ets` funktion [@hyndman] i `forecast` pakke til at lave en modellen, hvor der blev givet daglige vægtværdier fra 2019-11-01 til 2020-03-01. `model="ZZZ"` betyder, at funktionen selv skal find ud, om fejlene er additive eller multiplikative, om der er tendenser og til sidst om der er sæsoner i tidserien. Fra outputtet nedenfor kan man se, at der blev udregnet `M,A,N`, hvilket betydet, at fejlene er multiplikative, at tendensen er additiv, og at der er ingen sæsoner i denne tidsserie[@habacoff, s. 354].
 
 
 ```{R include=FALSE}
@@ -317,7 +325,7 @@ print(fit$method)
 
 ## Forudsigelse
 
-Modellen som blev lavet i forudgående asnit blev brugt i `forecast` funktionen til at forudsige vægten i hele marts måned, altså 31 dage. På Figur \ref{fig:forecast} nedenfor kan man se de forudsagte værdier. En blå linje betyder "Point Forecast", den mørke gråzone markerer 80% konfidensintervall, og den lyse gråzone markerer 95% konfidensinterval. 
+Modellen som blev lavet i forudgående asnit blev brugt i `forecast` funktionen [@hyndman]  til at forudsige vægten i hele marts måned, altså 31 dage. På Figur \ref{fig:forecast} nedenfor kan man se de forudsagte værdier. En blå linje betyder "Point Forecast", den mørke gråzone markerer 80% konfidensintervall, og den lyse gråzone markerer 95% konfidensinterval. 
 
 ```{R}
 forecast <- forecast(fit,31)
@@ -326,7 +334,7 @@ forecast <- forecast(fit,31)
 \pagebreak
 
 ```{R echo=FALSE ,  fig.cap="\\label{fig:forecast} Forudsigelse af vægtudvikling på Bistade1 i 2020 marts måned. De forudsagte værdier sammenlignes også med de empiriske værdier for at validere modellens nøjagtighed."}
-plot(forecast, ylab = "Vægt", xaxt="n", col="red", main="Forudsigelse af vægtudvikling på Bistade1")
+plot(forecast, ylab = "Vægt(kg)", xaxt="n", col="red", main="Forudsigelse af vægtudvikling på Bistade1")
 
 # Find time for ploting
 hive1_winter$timeseries <- time(thive1) 
@@ -370,7 +378,7 @@ legend("bottomleft", legend=c("80% konfidensinterval", "95% konfidensinterval"),
 I valideringsfasen blev der først og fremmest sammenlignet de forudsagde værdier og de empiriske værdier ved at plotte de emperiske værdier for 2020 marts måned på den samme graf i Figur \ref{fig:forecast}. De empiriske værdier ligger pænt ind i 80% konfidensinterval interval, hvilket tyder på at modellen forudsiger ret præcist. Det skal bare bemærkes, at modellen kun kan forudsige vægtværdier indtil bierne faktisk begynder at indsamle nektar, da modellen som nævnt er egnet kun til vinterhalvår (sommerhalvår er dog håndteret i det næste afsnit).   
 
  
-For det andet blev der også undersøgt modellens `Root mean squared error`(`RMSE`), som er udregnet ved $\sqrt{(mean(e_t^2))}$. I outputtet nedenfor kan man se at modellen i forhold til målestok har rimeligt lavt `RSME` ´værdi, som er $0.077$. 
+For det andet blev der også undersøgt modellens `Root mean squared error`(`RMSE`), som er udregnet ved $\sqrt{(mean(e_t^2))}$ [@hyndman_athanasopoulos (afsnit 3.4)]. I outputtet nedenfor kan man se at modellen i forhold til målestok har rimeligt lavt `RSME` værdi[@astur], som er $0.077$. 
 
 ```{R}
 forecast::accuracy(fit)
@@ -398,22 +406,11 @@ Vægttilvækst kan fortælle om bierne trækker eller forburger deres deopoter. 
 
 ## Dataklargøring
 
-Først og fremmest var der ikke nok vejrparametre i et given bistadets datasæt, hvor der faktisk kun er udetemperatur, som kunne bruges. Så derfor blev der hentet et datasæt med flere vejr parametre fra https://www.dmi.dk/vejrarkiv/ .  Vejrdatasættet består af disse variabler: nedbør,  vindhastighed, tørkeindex, luftfugtighed, lufttryk og solskin timer. Nedenfor på Figur \ref{fig:weather_data} kan man også se grafer over disse variabler i juni måned 2020: 
+Først og fremmest var der ikke nok vejrparametre i et given bistadets datasæt, så derfor blev der hentet et datasæt med flere vejr parametre fra https://www.dmi.dk/vejrarkiv/ .  Vejrdatasættet består af disse variabler: nedbør,  vindhastighed, tørkeindex, luftfugtighed, lufttryk og solskin timer. Nedenfor på Figur \ref{fig:weather_data} kan man også se grafer over disse variabler i juni måned 2020. 
 
+Desuden blev der også udført disse forberedelse/modifikationer på datasættet for at gøre det muligt at klassificere: 
 
-```{r echo=FALSE ,  fig.cap="\\label{fig:weather_data} Ekstern vejrdata fra DMI i juni måned 2020"}
-weather_data_furesoe_jun <- read.table(file="data/furesø-kommune-juni-2020.csv", sep="," ,header = TRUE)
-weather_data_furesoe_jun$dt <- as.Date(weather_data_furesoe_jun$dt)
-#Hmisc::describe(weather_data_furesoe_jun)
-plot.ts(weather_data_furesoe_jun[-1], main="Ekstren vejrdata fra DMI i juni måned 2020")
-
-```
-
-\pagebreak
-
-Desuden blev der også udført disse forberedelse/modifikationer på datasættet: 
-
-- Vægttilvæksten, som oprindeligt var kvantitativ variabel, blev lavet om til kvalitative variablel. Vægttilvæksten blev opdelt i to kategorier, altså UP og DOWN. UP er når vægtilvæksten er positiv og DOWN er når vægttilvæksten er negativ. 
+- Vægttilvæksten, som oprindeligt var kvantitativ variabel, blev lavet om til kvalitative variablel. Vægttilvæksten blev opdelt i to kategorier, nemlig UP og DOWN. UP er når vægtilvæksten er positiv og DOWN er når vægttilvæksten er negativ. 
 - Der blev valgt at benytte data kun fra juni måned, fordi bierne trækker kun, når der er nektar, nemlig i slutning af foråret og i starten af sommeren, så derfor vil det ikke give mening at inkludere måneder, hvor der ikke sker noget træk.
 - Og sidst benyttes der 2020 juni måned til at lave modellen og 2019 juni måned til at validere modellen. 
 
@@ -421,9 +418,24 @@ Desuden blev der også udført disse forberedelse/modifikationer på datasættet
 
 https://da.bccrwp.org/compare/difference-between-categorical-and-quantitative-data/ -->
 
-Disse forberedelser på træningssættet kan man se i R kodeudklippet nedenunder. Tilsvarende modifikationer blev også lavet til valideringsdatasættet, men ikke vist her i rapporten.  
+Disse forberedelser på træningssættet kan man se i R kodeudklippet i [Bilag C](#bilab_C). 
 
-```{r}
+```{r echo=FALSE ,  fig.cap="\\label{fig:weather_data} Data fra bistadet sammensat med eksternt vejrdata fra DMI i juni måned 2020.", fig.height=8.5}
+weather_data_furesoe_jun <- read.table(file="data/furesø-kommune-juni-2020.csv", sep="," ,header = TRUE)
+weather_data_furesoe_jun$dt <- as.Date(weather_data_furesoe_jun$dt)
+#Hmisc::describe(weather_data_furesoe_jun)
+hive_data_2020_jun <- import_hive_data_daily(from = "'2020-06-01 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+hive_data_2020_jun_merged_weather <- merge(hive_data_2020_jun,
+                                  weather_data_furesoe_jun, by="dt") 
+hive_data_2020_jun_merged_weather <- hive_data_2020_jun_merged_weather %>% rename(hive_weight_kg = hive_weight_kgs_daily,  ambient_temp_c=ambient_temp_c_day_max)
+plot.ts(hive_data_2020_jun_merged_weather[-1], nc=1 , yax.flip = TRUE, main="")
+
+```
+
+
+
+```{r include=FALSE}
 # Prepare train data
 hive_data_2020_jun.train <- import_hive_data_daily(from = "'2020-05-31 00:00:00'",
                                                    to="'2020-07-01 00:00:00'")
@@ -469,11 +481,14 @@ hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !c(hive_weigh
 
 
 
-## Klassificeringstræet
+## Beslutningstræ
 
-For at klassificere om vægttilvækst skulle være opadgående eller nedadgående, blev der valgt at bruge "Conditional inference tree" i stedet traditionelle træer, fordi "Conditional inference tree" vælger variabler og skillelinje på baggrund af signifikans i stedet af homogenitet som er i traditionelle træer[@habacoff, s. 397], hvilket har givet bedre resultater i valideringsfasen.
+For at klassificere om vægttilvækst skulle være opadgående eller nedadgående, blev der valgt at bruge beslutningstræer, fordi træer er nemmere at fortolke og at visualisere på grafen end de andre modeller bl.a. linær regression eller logistisk regression. På en anden side kan beslutningstræer være mindre præcise og de er heller ikke så robuste, da små ændringer i datasættet kan medføre stor ændringer i den endelig resultat. [@soerensen]
 
-I R koden nedenfor kan man se at der blev brugt `ctree` funktion til at lave "Conditional inference tree". `weight_delta_direction` er sat til at være "outcome variable" i modellen, og alle resterende variabler i datasættet, altså `ambient_temp_c_day_max`, `precipitation`,  `wind`,  `drought`,  `humidity`, `pressure` og  `sun`, skulle bruges som "predictors". 
+Der blev desuden valgt at bruge "Conditional inference tree" frem for traditionelle træer, fordi "Conditional inference tree" vælger variabler og skillelinje på baggrund af signifikans i stedet af homogenitet som er i traditionelle træer[@habacoff, s. 397], hvilket har givet bedre resultater i valideringsfasen.
+
+I R koden nedenfor kan man se at der blev brugt `ctree` funktion[@hothorn] til at lave "Conditional inference tree". `weight_delta_direction` er sat til at være "outcome variable" i modellen, og alle resterende variabler i datasættet, altså `ambient_temp_c_day_max`, `precipitation_mm`,	`wind_m_s`,	`drought_index`,	`humidity_proc`, `pressure_hPa` og	`sun_hours`
+, skulle bruges som "predictors". 
 
 ```{R}
 fit.ctree <- ctree(weight_delta_direction~ .,data=hive_data_2020_jun.train,  
@@ -487,10 +502,19 @@ På Figur \ref{fig:tree} kan man se dog, at `ctree` udvalgte kun disse tre param
 
 Det selve træ visualiserer, hvordan modellen klassificere om vægten skulle gå opad eller nedad. F.eks. hvis en given lufttemperatur er højere end 21.8, så modellen estimere at den skulle gå op. Til gengæld hvis temperatur er mindre end 21.8, så der kigges både på lufttryk og nedbør for at klassificere vægttilvæksten. 
 
-De største overraskelse i træet er, at luftryk er en af de mest signifikant parametre. Det har dog også observeret flere andre biavler, at biene ikke flyver ud så meget, når luftryk falder, da det kan medføre stormen. [^beemaster]    
+
+
+
+
+<!--
+De største overraskelse i træet er, at luftryk er en af de mest signifikant parametre, men dette kan muligvis forklares, at bierne forudsiger et regnvejr, hvis luftryk er faldende. 
+
+Det har dog også observeret flere andre biavler, at biene ikke flyver ud så meget, når luftryk falder, da det kan betyde stormen. [^beemaster]    
 
 [^beemaster]:https://beemaster.com/forum/index.php?topic=53294.0
 
+https://ezinearticles.com/?Barometric-Pressure-and-How-It-Affects-Animals&id=6656769#:~:text=Many%20animals%20rely%20on%20scent,the%20ground%20and%20last%20longer.
+-->
 
 ```{R echo=FALSE, fig.cap="\\label{fig:tree} 'Conditional inference tree' for at klassificere vægttilvæksten."}
 plot(fit.ctree)
@@ -502,7 +526,7 @@ plot(fit.ctree)
 
 \pagebreak
 ## Validering
-I valideringsfasen blev der sammenlignet de forudsagde værdier med de observerede, hvor der blev brugt datasættet fra 2019 juni måned. Resultaterne kan man se i `confusionMatrix` nedenunder. Fra outputtet nedenfor kan man se, at der blev forudsagt kun 4 gange forkert ud af de 30 dage, hvilket svare til 0.8667 "accurancy". Man kan dog se, at "No information rate" er rimelig stor, hvilket påstår, at man kunne få den samme resultat, hvis man gættede tilfældigt[@inkhorn82]. Så derfor er det svært at begrunde at modellen er pålideligt nok, selv om den var ret præcis i valideringsfasen.  
+I valideringsfasen blev der sammenlignet de forudsagde værdier med de observerede, hvor der blev brugt datasættet fra 2019 juni måned. Resultaterne kan man se i `confusionMatrix`[@kuhn] nedenunder. Fra outputtet nedenfor kan man se, at der blev forudsagt kun 4 gange forkert ud af de 30 dage, hvilket svare til 0.8667 "accurancy". Man kan dog se, at "No information rate" er rimelig stor, hvilket påstår, at man kunne få den samme resultat, hvis man gættede tilfældigt[@inkhorn82]. Så derfor er det svært at begrunde at modellen er pålideligt nok, selv om den var ret præcis i valideringsfasen.  
 
 <!-- I validering fasen blev der forudset vægttilvækst ved at give et vejrdatasæt fra 2019 juni måned. Resultaterne sammenlignes bagefter med de observerede værdier  -->
   
@@ -555,6 +579,8 @@ Personligt har jeg lært ret meget, da jeg skulle skrive en del R koden for at f
 # Referencer
 
 <div id="refs"></div>
+
+\pagebreak
 
 # Bilag
  
@@ -686,4 +712,51 @@ return_period <- function(hive_data, from ,to){
   return(hive_data[hive_data$hive_observation_time_local > from & hive_data$hive_observation_time_local < to  , ])
 }
 
+```
+
+\pagebreak
+
+## Bilag C: Dataklargøring til klassificering af vægttilvækst{#bilag_C}
+
+
+```r
+# Prepare train data
+hive_data_2020_jun.train <- import_hive_data_daily(from = "'2020-05-31 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+# Extract weight deltas
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%  mutate(weight_delta = 
+  hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta)) %>%
+  slice(2:n())
+# Categorize weight delta directions
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%
+  mutate(weight_delta_direction = ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2020_jun.train$weight_delta_direction <- 
+            factor(hive_data_2020_jun.train$weight_delta_direction) 
+# Merge with weather data
+weather_data_furesoe_2020_jun <- read.table(file="data/furesø-kommune-juni-2020.csv",
+                                            sep="," ,header = TRUE)
+weather_data_furesoe_2020_jun$dt <- as.Date(weather_data_furesoe_2020_jun$dt)
+hive_data_2020_jun.train <- merge(hive_data_2020_jun.train,
+                                  weather_data_furesoe_2020_jun, by="dt")  
+# Remove not used columns
+hive_data_2020_jun.train <- select(hive_data_2020_jun.train, 
+                                   !c(hive_weight_kgs_daily,weight_delta, dt))
+
+# Prepare validate data
+hive_data_2019_jun.validate <- import_hive_data_daily(from = "'2019-05-31 00:00:00'", to="'2019-07-01 00:00:00'")
+# Extract weight deltas
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%  mutate(weight_delta = hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta)) %>%
+  slice(2:n())
+# # Categorize weight delta directions
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%
+  mutate(weight_delta_direction =  ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2019_jun.validate$weight_delta_direction <-factor(hive_data_2019_jun.validate$weight_delta_direction) 
+# Merge with weather data
+weather_data_furesoe_2019_jun <- read.table(file="data/furesø-kommune-juni-2019.csv", sep="," ,header = TRUE)
+weather_data_furesoe_2019_jun$dt <- as.Date(weather_data_furesoe_2019_jun$dt)
+hive_data_2019_jun.validate <- merge(hive_data_2019_jun.validate, weather_data_furesoe_2019_jun, by="dt")  
+# Remove not used columns
+hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !c(hive_weight_kgs_daily,weight_delta, dt))
 ```

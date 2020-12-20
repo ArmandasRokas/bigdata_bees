@@ -1,4 +1,4 @@
-dt,precipitation,wind,drought,humidity,pressure,sun
+dt,precipitation_mm,wind_m_s,drought_index,humidity_proc,pressure_hPa,sun_hours
 2019-06-01 00:00:00,0,4,8.7,82.6,1018.2,2.6
 2019-06-02 00:00:00,0,2.3,9,68.7,1017.2,9.5
 2019-06-03 00:00:00,0.8,2.7,9.1,71.2,1011.5,5.8

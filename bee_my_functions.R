@@ -95,7 +95,7 @@ plot_time_weight <- function(hive_data, title){
   }
   min <- as.Date(head(hive_data, 1)[,"hive_observation_time_local"])
   max <- as.Date(tail(hive_data, 1)[,"hive_observation_time_local"])   
-  plot(hive_data$hive_observation_time_local, hive_data$hive_weight_kgs, type = 'l', xlab = paste("Tid fra", min, "til", max, sep= " ") , ylab="Vægt", main=title)
+  plot(hive_data$hive_observation_time_local, hive_data$hive_weight_kgs, type = 'l', xlab = paste("Tid fra", min, "til", max, sep= " ") , ylab="Vægt(kg)", main=title)
   # , at=seq(as.Date(min),as.Date(max),by=(13*7))
 }
 
@@ -103,14 +103,14 @@ plot_time_weight_temp <- function(hive_data){
   min <- as.Date(head(hive_data, 1)[,"dt"])
   max <- as.Date(tail(hive_data, 1)[,"dt"])   
   par(mar = c(5, 5, 3, 5))
-  plot(hive_data$dt, hive_data$hive_weight_kgs_daily, type ="l", ylab = "Vægt", lty=2,
+  plot(hive_data$dt, hive_data$hive_weight_kgs_daily, type ="l", ylab = "Vægt(kg)", lty=2,
        main ="Sammenhæng mellem vægt og temperatur", xlab = paste("Tid fra", min, "til", max, sep= " "),
        col = "grey")
   par(new = TRUE)
   plot(hive_data$dt, hive_data$ambient_temp_c_day_max, type = "l", xaxt = "n", yaxt = "n",
        ylab = "", xlab = "", col = "black") # , lty = 2
   axis(side = 4)
-  mtext("Temperatur", side = 4, line = 3)
+  mtext("Temperatur(C)", side = 4, line = 3)
   legend("topleft", c("Vægt", "Temperatur"),
          col = c("grey", "black"), lty = c(2, 1))
 }

@@ -1,4 +1,4 @@
-dt,precipitation,wind,drought,humidity,pressure,sun
+dt,precipitation_mm,wind_m_s,drought_index,humidity_proc,pressure_hPa,sun_hours
 2020-06-01 00:00:00,0,1.6,10,59.2,1027.2,15.6
 2020-06-02 00:00:00,0,2.8,10,56.3,1018.2,15.7
 2020-06-03 00:00:00,0,2.7,10,66.7,1008.7,13.8
