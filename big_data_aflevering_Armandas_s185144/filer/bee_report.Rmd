@@ -1,0 +1,947 @@
+---
+title: "Bistader"
+subtitle: "62527 Big data E20"
+author: "Armandas Rokas(s185144)"
+date: 22/12 2020  \pagebreak
+bibliography: bibliography.bib
+csl: university-college-lillebaelt-apa.csl
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: true
+  html_document:
+    toc: yes
+    toc_depth: '3'
+    df_print: paged
+header-includes:
+  - \renewcommand{\contentsname}{Indholdsfortegnelse}
+  - \pagenumbering{gobble} 
+  - \usepackage{titling}
+  - \pretitle{\begin{center}
+    \includegraphics[width=2in,height=2in]{ic_beeware_launcher_logo-web.png}\LARGE\\}
+  - \posttitle{\end{center}}    
+  - \pagebreak
+---
+\definecolor{h}{HTML}{FFFF66}
+\renewcommand{\figurename}{Figur}
+\renewcommand{\tablename}{Tabel}
+<!-- https://stackoverflow.com/questions/47173279/internationalization-r-knitr-figure-caption-label -->
+\pagenumbering{gobble} 
+
+
+\pagebreak
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("bee_my_functions.R")
+library(dplyr)
+library(forecast)
+library(Hmisc)
+library(caret) 
+library(party)
+library(papeR)
+setwd("/home/arm/Projects/bigdata_bees")
+```
+\pagebreak
+\pagenumbering{arabic} 
+
+
+
+# Problemformulering
+
+I dette projekt skulle der arbejdes på dataen fra bistadet. Et helt overordnet formål ved dette er at hjælpe biavlen med driften af hans bifamilier. Mere præcist kommer projektet at udbrede sig i tre forskellige spektre. Først skal der sammenlignes to forskellige bistader fra den same have til at finde ud om den ene bifamilie præstere bedre end den anden. Bagefter forudsiges der vægten i vinterperiode for at forebygge evt. sult i bifamilien.  Og til sidst klassificeres der vægttivækst i sommerperioden med et formål at advare biavlen, når en bifamilien evt. er syg. 
+
+
+# Data beskrivelse
+
+Før kommer vi i gang med datanalysen, skal der lige først beskrive, hvordan dataen ser ud. For det første samles data via Raspbarry Pi, som er tilknyttet til forskellige sensorer, som måler bistadets vægt, fugtighed, lys osv. (hele listen af variabler kan man se i [Variabler](#variabler) afsnit), og gemmes både lokalt på SQLite databasen og sendes til skyen på HiveTool.net platformen. 
+
+## Import af data
+Der blev valgt at bruge SQLite til at indlæse dataen til R, da det er lidt svært at få fat i dataen på HiveTool.net, især hvis man skal bruge en lang tidsperiode. For at indlæse dataen fra SQLite blev der skrevet en `import_hive_data` funktion, hvis koden kan findes i [Bilag B](#bilag_B). 
+
+## Variabler {#variabler}
+
+Observationer fra bistadet bliver taget hver 5. minut og der er i alt 105064 observationer ([Bilag A](#bilag_A)). Dataen er dog ikke helt konsistent, da der er nogle huller i datasættet, hvor der mangler målinger, og der er nogle målinger, som har forkerte værdier. Dataen går helt tilabge til 2018-03-07, men den bliver mere og mere inkonsistente jo mere i fortiden man går, så derfor blev der valgt at tage udgangspunkt i et års data, dvs. fra 2019-09-01 til 2020-09-01.
+
+
+```{r include=FALSE}
+hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'", raw=TRUE)
+```
+
+
+
+
+Der er i alt 43 søjler i datasættet, men ud fra opsummering af variabler i [Bilag A](#bilag_A) kan man konstatere at disse variabler kun er i brug og relevante: `hive_observation_time_local`, `hive_weight_kgs`, `hive_temp_c`, `hive_humidity`, `ambient_temp_c`,
+`ambient_humidity` og `ambient_luminance`. Nedenfor på Tabel \ref{tab:summarize} opsummeres der disse variabler:
+
+
+```{r echo=FALSE, message=FALSE}
+#des <- Hmisc::describe(hive_data)
+#des$hive_observation_time_local$extremes <- NULL
+#print(des)
+knitr::kable(papeR::summarize(hive_data),
+             caption = "\\label{tab:summarize} Opsummering af stade1 data fra 2019-09-01 to 2020-09-01")
+```
+
+```{r echo=FALSE}
+#summary(hive_data$hive_observation_time_local)
+#summary(hive_data$hive_weight_kgs)
+#summary(hive_data$hive_temp_c)
+#summary(hive_data$hive_humidity)
+#summary(hive_data$ambient_temp_c)
+#summary(hive_data$ambient_humidity)
+#summary(hive_data$ambient_luminance)
+```
+
+\pagebreak
+
+Vægten er den centrale variable i datasættet. Nedenfor på Figur \ref{fig:weightyear} kan man se vægtudvikling fra i perioden fra 2019-09-01 til 2020-09-01, hvor man kan se tydeligt to sæsoner: om vinteren vægten bliver gradvis mindre, fordi bierne spiser føder, mens om sommer stiger vægten kraftigt, fordi der er der, hvor bierne indsamler nektar. 
+
+```{r include=FALSE}
+hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'")
+```
+
+
+
+```{r echo=FALSE, fig.cap="\\label{fig:weightyear} Vægtudvikling på bistade1 fra 2019-09-01 til 2020-09-01"}
+plot_time_weight(hive_data) 
+```
+
+\pagebreak
+
+## Databehandling
+
+### Vægt
+
+**Manual indgreb**
+
+Først og fremmest vægtmålinger skulle renses op for forkerte målinger. De er forkerte, fordi der blev udført flere gange "manual ingreb" på bistadet. Manualt ingreb medfører at vægten pludslig stiger kraftig eller falder. Oftest det er fordi biavlen skal påsætte en ny magasin eller fjerne én. For at visualisere problemet blev der plottet vægten, hvor man kan se på den venstre graf på Figur \ref{fig:manualindgreb}, at  vægten har øget med `3.49` omkring tidspunktet `2020-05-28 12:25:01`, fordi der blev sat en nye magasin ind.
+
+Så derfor blev skrevet en `manipulate_weight_deltas` funktion, som udligner disse manualle indgreb (hele koden af funktionen kan findes i [Bilag B](#bilag_B)). Funktionen tager imod et bistade data og perioderne, som skal udlignes. Den returnerer bagefter den behandlede data, som man kan se på den højre graf på Figur \ref{fig:manualindgreb}.
+
+```{R echo=FALSE, fig.cap="\\label{fig:manualindgreb} Vægtudvikling på bistade1 fra 2020-05-24 til 2020-06-01, hvor til venstre er den oprindelige data, og til højre den behandelede data, hvor et manualt indgreb er fjernet." }
+hive_data <- import_hive_data(from = "'2020-05-24 00:00:00'", to="'2020-06-01 00:00:00'")
+  par(mfrow=c(1,2))
+  plot_time_weight(hive_data, title="Den oprindelige data")
+  
+  
+
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  
+  
+  plot_time_weight(hive_data, title="Den behandlede data")
+
+```
+
+
+
+\pagebreak
+ 
+**Midnats vægtværdier**
+
+Den anden støj i vægtmålinger var, at der var alt for mange målinger, nemlig hvert 5. minut. Bierne følger den daglige rutine. De flyver ud om morgen, indsamler nektar i løbet af dagen, om natten fordamper den. Det medfører at vægten svinger op og ned i løbet af dagen og for at se den ægte vægt tilvækst pr. dag er det bedst at kigge på midnatsværdier. Så der blev skrevet en ´import_hive_data_daily´ funktion, som trækker ud midnatsværdier (hele koden kan findes i [Bilag B](#bilag_B)). 
+
+Nedenfor på Figur \ref{fig:night_weight} er der to grafer. Til venstre er der alle data punkter, dvs. hvert 5. minut. Til højre er der kun midnatsværdier. Man kan se at det er nemmere aflæse grafen kun med midnatsværdier især i august måned, hvor vægten svinger mest i løbet af dagen. 
+
+<!-- 
+Det var også nødt til at skubbe en dag tilbage. Dvs. den skal vise en vægt måling som tage 2020-05-23 00:00:01 viser faktisk vægt tilvækst i den 2020-05-22, so det vil være ukorrekt at den blev stående i 2020-05-23, dvs. det vil ikke passe med andre målinger som for eksampel maksimale temperatur , da  vi har lyst til at finde ud vægt tilvækst i forhold til den forudgående dags maksimale temperatur hvis vi tager f.eks. 2020-05-20 00:00:01 vægt, så vi skal bruge den højeste tempratur dagen før, som var på tidspunt: 2020-05-19 15:55:01  dvs med det tempratur var dette tilvækst.. Defor alle vægt vædier er skubbet bagud med funktionen `lead` -->
+
+```{R echo=FALSE, fig.cap="\\label{fig:night_weight} Vægtudvikling på bistade1 fra 2020-05-01 til 2020-09-01, hvor til venstre er der en graf med alle datapunkter, og til højre kun med midnatsværdier." }
+  hive_data <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  par(mfrow=c(1,2))
+  plot_time_weight(hive_data, title="Alle datapunkter")
+  hive_data <- extract_midnight_weights(hive_data)
+  plot_time_weight(hive_data, title="Kun midnatsværdier")
+```
+
+\pagebreak
+
+### Temperatur
+
+Nu når der blev fået døgnvægtværdier, skulle der også findes døgntemperaturværdier, da de oprindelige målinger som nævnt er taget hvert 5. minut. Først blev der prøvet at finde den gennemsnitlige temperatur i døgnet, men værdierne var ikke så informative, da de lave nattemperaturer og de høje dagtemperaturer udlignede hinanden. Så der blev besluttet at finde den højeste værdi i døgnet. Hvordan det blev gjort, kan man se i  [Bilag B](#bilag_B) under `import_hive_data_daily` funktionen. På grafen i Figur \ref{fig:weight_temp} nedenfor kan man se de daglige højeste temperaturværdier og dets sammenhæng med midnatsvægtværdierne, hvor man kan fornemme noget forbindelse mellem disse to variabler, men dette undersøges videre i sektionen [Klassificering af vægttilvækst](#klass). 
+
+
+
+```{R echo=FALSE,  fig.cap="\\label{fig:weight_temp} Sammenhæng mellem vægt og temperatur"}
+hive_data_2020_jun <- import_hive_data_daily(from = "'2020-06-01 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+plot_time_weight_temp(hive_data_2020_jun)
+```
+
+\pagebreak
+
+
+
+# Sammenligning af bistader
+
+## Formål
+
+I dette afsnit skal der sammenlignes to bistader fra den samme have, altså Bistade1 og Bistade3. Formålet med sammenligning kunne være at vurdere om den ene familie præstere bedre end den anden. Nedenfor på Figur \ref{fig:compare_hives} kan man se vægtudvikling på disse bistader. 
+
+<!-- , som er behandlede for manuelle indgreb og kun midnatsværdier jf. Oprensning afsnit.  -->
+
+
+```{R echo=FALSE,  fig.cap="\\label{fig:compare_hives} Vægtudvikling på bistade1 og bistade3 fra 2020-05-01 til 2020-08-31"}
+# Hive 1
+hive1 <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
+periods_to_remove1 <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+hive1 <- manipulate_weight_deltas(hive_data=hive1, periods=periods_to_remove1)
+hive1 <- extract_midnight_weights(hive1)
+
+# Hive 3
+hive3 <- import_hive_data_csv("data/FHA_Stade3_MAJ_SEP")
+periods_to_remove3 <- read.table(file="data/stade3_period_to_ignore.csv", sep=",", header = TRUE)
+hive3 <- manipulate_weight_deltas(hive_data=hive3, periods=periods_to_remove3)
+hive3 <- extract_midnight_weights(hive3)
+
+
+# Plot
+min <- as.Date(head(hive1, 1)[,"hive_observation_time_local"])
+max <- as.Date(tail(hive1, 1)[,"hive_observation_time_local"])
+par(mar = c(5, 5, 3, 5))
+plot(hive3$hive_observation_time_local, hive3$hive_weight_kgs, type ="l", ylab = "Vægt(kg)",
+     main ="Vægtudvikling på bistade1 og bistade3", xlab = paste("Tid fra", min, "til", max, sep= " "),
+     col = "blue")
+lines(hive1$hive_observation_time_local, hive1$hive_weight_kgs,col="red")
+#par(new = TRUE)
+#plot(hive3$hive_observation_time_local, hive3$hive_weight_kgs, type = "l", xaxt = "n", yaxt = "n",
+#     ylab = "", xlab = "", col = "red") # , lty = 2
+#axis(side = 4)
+#mtext("Temperatur", side = 4, line = 3)
+legend("topleft", c("Bistade1", "Bistade3"),
+       col = c("red", "blue"), lty = c(1, 1))
+```
+
+\pagebreak
+
+**Den daglige vægttilvækst**
+
+For at gøre det nemmere at sammenligne bistader, blev der taget de daglige vægttilvækst af disse bistader. Graffen af dette kan man se på Figur \ref{fig:weight_delta}. Gennemsnittene af de dagligt vægttilvækst for de respektive bistader er:
+
+- $\mu_1=0.1598374$(Bistade1) 
+- $\mu_3=0.2188468$(Bistade3)
+
+Disse blev udregnet med R koden nedenfor:
+
+```{r include=FALSE}
+hive1 <- hive1 %>%  mutate(daily_weight_delta = hive_weight_kgs -
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(daily_weight_delta = ifelse(is.na(daily_weight_delta), 0, daily_weight_delta))
+
+hive3 <- hive3 %>%  mutate(daily_weight_delta = hive_weight_kgs -
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(daily_weight_delta = ifelse(is.na(daily_weight_delta), 0, daily_weight_delta))
+```
+
+```{r}
+
+mean(hive1$daily_weight_delta)
+mean(hive3$daily_weight_delta)
+
+```
+
+
+
+```{R echo=FALSE,  fig.cap="\\label{fig:weight_delta} Daglig vægttilvækst af bistade1 og bistade3 fra 2020-05-01 til 2020-08-31"}
+
+plot(hive1$hive_observation_time_local, hive1$daily_weight_delta, type="h",main="Daglig vægttilvækst", ylab="Vægt(kg)", xlab="", col="red")
+lines(hive3$hive_observation_time_local, hive3$daily_weight_delta,col="blue", lwd = 0.2, , lty=2, type="l")
+legend("topleft", c("Bistade1", "Bistade3"),
+       col = c("red", "blue"), lty = c(1, 1))
+```
+
+\pagebreak
+
+## Hypotesetest
+
+I den forudgående sektion blev der fundet at bistade3 umiddelbart har lidt højere gennemsnit, nemlig $\mu_3-\mu_1=0.2188468-0.1598374=0.0590$, men er det nok at konkludere at der er en forskel mellem disse stader? For at undersøge det blev der udført et hypotesetest. 
+
+
+$$
+\begin{aligned}
+H_{0} \ : \ \mu_{1}= \mu_{3} \\
+H_{1}\ : \ \mu_{1} \ne \mu_{3}
+\end{aligned}
+$$
+
+**Welch Two Sample t-test**
+
+Nedenfor i outputtet fra `t-test` **kan der ikke konstateres en signifikant forskel i den daglige vægttilvækst mellem Bistade1 og Bistade3**, fordi $\text{p-value}$ (sandsynlighed at vi har fået denne forskel tilfældigt) er ret stor 0.5763  og 95% konfidensinterval inkluderer 0. Dvs. vi ikke kan afvise $H_0$, som er, at de daglige vægttilvækst er ens. [@brockhoff]
+
+```{R}
+t.test(hive1$daily_weight_delta, hive3$daily_weight_delta)
+```
+## Konklusion på sammenligningen
+Selv om der ikke kunne lade sig gøres at bevise signifikant forskellen på bistader ved at bruge `t.test`, er den forskellen som man kan sige på grafer er nok til biavlen til at konkludere, at der er en tydeligt eksampel på at bifamilier er forskellige, da stade3 producerer mest honning, og derfor ville han vælge Bistade3, som "mor" til en evt. ny familie.  
+
+\pagebreak
+
+# Forudsigelse af vægten i vinterperioden
+
+
+## Formål 
+Der er to formål, hvorfor biavlen skal overvåge og evt. forudsige vægten i en vinter periode. Det første formål er, at det er ret vigtigt for biavlen, at vægten ikke falder under en vist niveau. Hvis den gør alligevel,  så kunne dette betyde at bierne ikke har mere foder og derfor vil de begynde at sulte. Så det kunne være en fordel til biavlen, at han kunne forudsige, hvornår den falder under dette niveau, så biavlen kunne fylde foderdepoter op. For eksempel hvis vi tager Bistade1, så ligger dens minimumvægt på 15kg, da magasin, tavler og bier vejer omkring 12 kg. 
+  
+  Den anden formål kunne være at overvåge om familien har det godt om vinteren. Familien er god stand, hvis vægten falder konstant og som forventet, så det betyder at familien forbruger foder, men hvis vægten stopper med at falde, så det kan være en tegn, at familien er syg eller i det værste tilfælde uddødet.   
+
+
+<!--bierne har nok foder i en vinter periode. Det vil sige, at vægten falder gradvis i løbet af vinteren, men den skal ikke falde under en vist niveau, og biavlen skal gribe ind, hvis den gør. --> 
+
+
+
+## Modellen
+
+Som man kan sige i R kodeudklippet nedenfor blev der benyttet `ets` funktion [@hyndman] i `forecast` pakke til at lave en modellen, hvor der blev givet daglige vægtværdier fra 2019-11-01 til 2020-03-01. `model="ZZZ"` betyder, at funktionen selv skal find ud, om fejlene er additive eller multiplikative, om der er tendenser og til sidst om der er sæsoner i tidserien. Fra outputtet nedenfor kan man se, at der blev udregnet `M,A,N`, hvilket betydet, at fejlene er multiplikative, at tendensen er additiv, og at der er ingen sæsoner i denne tidsserie[@habacoff, s. 354].
+
+
+```{R include=FALSE}
+hive1_winter <- import_hive_data(from = "'2019-11-01 00:00:00'", to="'2020-03-01 00:00:00'")
+hive1_winter <- extract_midnight_weights(hive1_winter)
+#plot_time_weight(hive1_winter)
+hive1_winter_weights <- hive1_winter$hive_weight_kgs
+
+```
+
+
+```{R}
+# Create timeseries object
+thive1 <- ts(hive1_winter_weights, frequency=365, start=c(2019,305))
+# Create exponential forecasting model
+fit <- ets(thive1, model="ZZZ")
+print(fit$method)
+```
+
+
+
+## Forudsigelse
+
+Modellen som blev lavet i forudgående afsnit blev brugt i `forecast` funktionen [@hyndman]  til at forudsige vægten i hele marts måned, altså 31 dage. På Figur \ref{fig:forecast} nedenfor kan man se de forudsagte værdier. En blå linje betyder "Point Forecast", den mørke gråzone markerer 80% konfidensinterval, og den lyse gråzone markerer 95% konfidensinterval. 
+
+```{R}
+forecast <- forecast(fit,31)
+```
+
+\pagebreak
+
+```{R echo=FALSE ,  fig.cap="\\label{fig:forecast} Forudsigelse af vægtudvikling på Bistade1 i 2020 marts måned. De forudsagte værdier sammenlignes også med de empiriske værdier for at validere modellens nøjagtighed."}
+plot(forecast, ylab = "Vægt(kg)", xaxt="n", col="red", main="Forudsigelse af vægtudvikling på Bistade1")
+
+# Find time for ploting
+hive1_winter$timeseries <- time(thive1) 
+localtime_timeseries <- hive1_winter[, c("hive_observation_time_local", "timeseries")]
+
+tsp <- attributes(thive1)$tsp
+
+df_forecast <-data.frame(forecast)
+df_forecast$times <- row.names(df_forecast)
+
+# Plot forecast
+axis(1, at = c(tsp[1],2019.915 , 2020.0, 2020.085, 2020.165 , as.numeric(tail(df_forecast$times,1))), 
+     labels = c("2019-11", "2019-12" , "2020-01", "2020-02","2020-03" ,"2020-04"))
+
+
+
+
+hive1_marts <- import_hive_data(from = "'2020-02-29 00:00:00'", to="'2020-03-31 00:00:00'")
+periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+hive1_marts <- manipulate_weight_deltas(hive_data=hive1_marts, periods=periods_to_remove)
+hive1_marts <- extract_midnight_weights(hive1_marts)
+thive1_marts <- ts(hive1_marts$hive_weight_kgs, frequency=366, start=c(2020,61))
+lines(thive1_marts, col="red")
+
+legend("topright", c("Empirisk", "Forudsigelse"),
+       col = c("red", "lightblue"), lty = c(1,1), lwd=c(1,2))
+legend("bottomleft", legend=c("80% konfidensinterval", "95% konfidensinterval"), fill=c("lightsteelblue3", "gray86"),
+           bty="n") 
+ 
+ #seq(tsp[1], as.numeric(tail(df_forecast$times,1)), along = thive1)
+#axis(1, at = seq(tsp[1], as.numeric(tail(df_forecast$times,1)),by=0.2), 
+ #    labels = format(hive1_winter$hive_observation_time_local, "%Y-%m-%d"))
+
+
+#hive_snow <- import_hive_data(from = "'2020-03-28 00:00:00'", to="'2020-04-01 00:00:00'")
+
+```
+
+
+## Validering 
+I valideringsfasen blev der først og fremmest sammenlignet de forudsagde værdier og de empiriske værdier ved at plotte de emperiske værdier for 2020 marts måned på den samme graf i Figur \ref{fig:forecast}. De empiriske værdier ligger pænt ind i 80% konfidensinterval interval, hvilket tyder på at modellen forudsiger ret præcist. Det skal bare bemærkes, at modellen kun kan forudsige vægtværdier indtil bierne faktisk begynder at indsamle nektar, da modellen som nævnt er egnet kun til vinterhalvår (sommerhalvår er dog håndteret i det næste afsnit).   
+
+ 
+For det andet blev der også undersøgt modellens `Root mean squared error`(`RMSE`), som er udregnet ved $\sqrt{(mean(e_t^2))}$ [@hyndman_athanasopoulos (afsnit 3.4)]. I outputtet nedenfor kan man se at modellen i forhold til målestok har rimeligt lavt `RSME` værdi[@astur], som er $0.077$. 
+
+```{R}
+forecast::accuracy(fit)
+```
+
+\pagebreak
+
+#  Klassificering af vægttilvækst {#klass}
+
+## Formål
+
+I denne sektion skal der klassificeres, om vægten skulle gå OPAD eller NEDAD ved at bruge vejrparametre som "predictors". Formålet med dette kunne være at advare biavlen, når bistadets vægten falder, selv om vejrforholdene er tilstrækkelige for at bierne skulle indsamle nektar.
+
+Det kan forklares med, at når vægten stiger, så bierne henter nektar, hvilket kan tyde på at bierne fungerer som de skal. Men hvis vægten falder, så det kan enten betyde, at vejrforholdene er for dårligt, eller der er problemer med bierne.     
+
+ Så i denne sektion skulle der defineres en model, som kunne klassificere, om vejrforholdene er gode nok for at vægten skulle stige.
+
+
+<!--Det vansligste formål ved at bruge klassificering til at give biavleren 
+Vægttilvækst kan fortælle om bierne trækker eller forburger deres deopoter. Træk er når bierne henter nektar fra blomsterne, hvilket medfører at bistadets vægten stiger. Hvis vægten ikke stiger, så den plejer at falde gradvis, fordi bierne begynder at spise det, som blev indsamlet. Så i denne sektion vil jeg prøve at forudsige om bierne skulle trække ved at benytte vejrdata (lufttemperatur,  nedbør,  vindhastighed, tørkeindex, luftfugtighed, lufttryk, solskin timer). Formålet ved det kunne være bl.a. at give en "Early Warning" til biavlen, når der forudsiges, at biene skulle trækker i forhold til verjet, dvs. , men vægten er faktisk faldet, hvilket kan være en tegn på at der er noget galt med bifamilien. 
+ For at eksemplificere, hvor man kan give "Early warning", kan man forstille sig Det vil sige, at "Early warning" sagt helt konkret ville gives, når der forudsiges at bistadets vægten skulle gå op, men det gik faktisk ned. For eksampel, når en dejlig sommerdag er forbi, kan man få aktuelle vejr værdier ind og den faktiske vægttilvækst (hvor meget nektar biene samlet på én dag). Så menning kunne være, at der indsættes vejr data til modellen og den skulle give et svar om biene skulle indsamle nektar i dag eller nej. For eksampel, hvis vejret var godt, ingen storm, lufttemperatur var højt nok osv. så modellen skulle sige at vægten skulle gå op. Når vi har dette svar fra modellen, kan vi sammenligne den med den aktuelle tilvækst fra bistadet, og kun hvis den gik ned, kan vi give en "Early warning" til biavleren. Høv, "det kan godt være, at der er noget galt med familien, da de ikke var ude at indsamle noget nektar idag, selv om vejret var til det" --> 
+ 
+ <!--  vejrforholdene. -->
+
+## Dataklargøring
+
+Først og fremmest var der ikke nok vejrparametre i et given bistadets datasæt, så derfor blev der hentet et datasæt med flere vejr parametre fra https://www.dmi.dk/vejrarkiv/ .  Vejrdatasættet består af disse variabler: nedbør,  vindhastighed, tørkeindex, luftfugtighed, lufttryk og solskin timer. Nedenfor på Figur \ref{fig:weather_data} kan man også se grafer over disse variabler i juni måned 2020. 
+
+Desuden blev der også udført disse forberedelse/modifikationer på datasættet for at gøre det muligt at klassificere: 
+
+- Vægttilvæksten, som oprindeligt var kvantitativ variabel, blev lavet om til kvalitative variablel. Vægttilvæksten blev opdelt i to kategorier, nemlig UP og DOWN. UP er når vægtilvæksten er positiv og DOWN er når vægttilvæksten er negativ. 
+- Der blev valgt at benytte data kun fra juni måned, fordi bierne trækker kun, når der er nektar, så derfor vil det ikke give mening at inkludere måneder, hvor der ikke sker noget træk.
+- Og sidst benyttes der 2020 juni måned til at lave modellen og 2019 juni måned til at validere modellen. 
+
+<!--Til sidst vil der siges, at der antages, at biene ikke var syge eller havde noget problemmer i trænings og validerings datasættene. 
+
+https://da.bccrwp.org/compare/difference-between-categorical-and-quantitative-data/ -->
+
+Disse forberedelser på træningssættet kan man se i R kodeudklippet i [Bilag C](#bilag_C). 
+
+```{r echo=FALSE ,  fig.cap="\\label{fig:weather_data} Data fra bistadet sammensat med eksternt vejrdata fra DMI i juni måned 2020.", fig.height=8.5}
+weather_data_furesoe_jun <- read.table(file="data/furesø-kommune-juni-2020.csv", sep="," ,header = TRUE)
+weather_data_furesoe_jun$dt <- as.Date(weather_data_furesoe_jun$dt)
+#Hmisc::describe(weather_data_furesoe_jun)
+hive_data_2020_jun <- import_hive_data_daily(from = "'2020-06-01 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+hive_data_2020_jun_merged_weather <- merge(hive_data_2020_jun,
+                                  weather_data_furesoe_jun, by="dt") 
+hive_data_2020_jun_merged_weather <- hive_data_2020_jun_merged_weather %>% rename(hive_weight_kg = hive_weight_kgs_daily,  ambient_temp_c=ambient_temp_c_day_max)
+plot.ts(hive_data_2020_jun_merged_weather[-1], nc=1 , yax.flip = TRUE, main="")
+
+```
+
+
+
+```{r include=FALSE}
+# Prepare train data
+hive_data_2020_jun.train <- import_hive_data_daily(from = "'2020-05-31 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+# Extract weight deltas
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%  mutate(weight_delta = 
+  hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta)) %>%
+  slice(2:n())
+# Categorize weight delta directions
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%
+  mutate(weight_delta_direction = ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2020_jun.train$weight_delta_direction <- 
+            factor(hive_data_2020_jun.train$weight_delta_direction) 
+# Merge with weather data
+weather_data_furesoe_2020_jun <- read.table(file="data/furesø-kommune-juni-2020.csv",
+                                            sep="," ,header = TRUE)
+weather_data_furesoe_2020_jun$dt <- as.Date(weather_data_furesoe_2020_jun$dt)
+hive_data_2020_jun.train <- merge(hive_data_2020_jun.train,
+                                  weather_data_furesoe_2020_jun, by="dt")  
+# Remove not used columns
+hive_data_2020_jun.train <- select(hive_data_2020_jun.train, 
+                                   !c(hive_weight_kgs_daily,weight_delta, dt))
+```
+
+```{r include=FALSE}
+# Prepare validate data
+hive_data_2019_jun.validate <- import_hive_data_daily(from = "'2019-05-31 00:00:00'", to="'2019-07-01 00:00:00'")
+# Extract weight deltas
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%  mutate(weight_delta = hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta)) %>%
+  slice(2:n())
+# # Categorize weight delta directions
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%
+  mutate(weight_delta_direction =  ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2019_jun.validate$weight_delta_direction <-factor(hive_data_2019_jun.validate$weight_delta_direction) 
+# Merge with weather data
+weather_data_furesoe_2019_jun <- read.table(file="data/furesø-kommune-juni-2019.csv", sep="," ,header = TRUE)
+weather_data_furesoe_2019_jun$dt <- as.Date(weather_data_furesoe_2019_jun$dt)
+hive_data_2019_jun.validate <- merge(hive_data_2019_jun.validate, weather_data_furesoe_2019_jun, by="dt")  
+# Remove not used columns
+hive_data_2019_jun.validate <- select(hive_data_2019_jun.validate, !c(hive_weight_kgs_daily,weight_delta, dt))
+```
+
+
+
+## Beslutningstræ
+
+For at klassificere om vægttilvækst skulle være opadgående eller nedadgående, blev der valgt at bruge beslutningstræer, fordi træer er nemmere at fortolke og at visualisere på grafen end de andre modeller bl.a. linær regression eller logistisk regression. På en anden side kan beslutningstræer være mindre præcise og de er heller ikke så robuste, da små ændringer i datasættet kan medføre stor ændringer i den endelig resultat. [@soerensen]
+
+Der blev desuden valgt at bruge "Conditional inference tree" frem for traditionelle træer, fordi "Conditional inference tree" vælger variabler og skillelinje på baggrund af signifikans i stedet af homogenitet som er i traditionelle træer[@habacoff, s. 397], hvilket har givet bedre resultater i valideringsfasen.
+
+I R koden nedenfor kan man se at der blev brugt `ctree` funktion[@hothorn] til at lave "Conditional inference tree". `weight_delta_direction` er sat til at være "outcome variable" i modellen, og alle resterende variabler i datasættet, altså `ambient_temp_c_day_max`, `precipitation_mm`,	`wind_m_s`,	`drought_index`,	`humidity_proc`, `pressure_hPa` og	`sun_hours`
+, skulle bruges som "predictors". 
+
+```{R}
+fit.ctree <- ctree(weight_delta_direction~ .,data=hive_data_2020_jun.train,  
+  controls = ctree_control(mincriterion = 0.01, minsplit= 1, minbucket = 1))
+```
+
+
+På Figur \ref{fig:tree} kan man se dog, at `ctree` udvalgte kun disse tre parametre, nemlig `ambient_temp_c_day_max`, `pressure` og `precipitation` , selv om der blev givet et relativt lavt  `mincriterion`, som kan udregnes ved $1-\text{p-value}$. Man kan også se, at `precipitation` har meget lille $\text{p-value}$, men uden precipitation får man dårligere resultat i valideringen.
+
+`minsplit` og `minbucket` er også blevet sat ned til 1 fra 20(som var default), da træet maksimum kunne deles kun én gang med default værdierne, før grenene blev alt for små til at blive delt videre, da træningsdatasættet indeholder kun 30 rækker 
+
+Det selve træ visualiserer, hvordan modellen klassificere om vægten skulle gå opad eller nedad. F.eks. hvis en given lufttemperatur er højere end 21.8, så modellen estimere at den skulle gå op. Til gengæld hvis temperatur er mindre end 21.8, så der kigges både på lufttryk og nedbør for at klassificere vægttilvæksten. 
+
+
+
+
+
+<!--
+De største overraskelse i træet er, at luftryk er en af de mest signifikant parametre, men dette kan muligvis forklares, at bierne forudsiger et regnvejr, hvis luftryk er faldende. 
+
+Det har dog også observeret flere andre biavler, at biene ikke flyver ud så meget, når luftryk falder, da det kan betyde stormen. [^beemaster]    
+
+[^beemaster]:https://beemaster.com/forum/index.php?topic=53294.0
+
+https://ezinearticles.com/?Barometric-Pressure-and-How-It-Affects-Animals&id=6656769#:~:text=Many%20animals%20rely%20on%20scent,the%20ground%20and%20last%20longer.
+-->
+
+```{R echo=FALSE, fig.cap="\\label{fig:tree} 'Conditional inference tree' for at klassificere vægttilvæksten."}
+plot(fit.ctree)
+```
+
+<!-- er sat til at være meget lavt-->  
+<!--Der blev benyttet "Conditional inference tree" til at forudsige om vægten skulle stige eller blive mindre ved at angive vejr data. -->
+<!-- http://www.just.edu.jo/~haalshraideh/Courses/IE759/DT3.html -->
+
+\pagebreak
+### Validering af beslutningstræet
+I valideringsfasen blev der sammenlignet de forudsagde værdier med de observerede, hvor der blev brugt datasættet fra 2019 juni måned. Resultaterne kan man se i `confusionMatrix`[@kuhn] nedenunder. Fra outputtet nedenfor kan man se, at der blev forudsagt kun 4 gange forkert ud af de 30 dage, hvilket svare til 0.8667 "accurancy". Man kan dog se, at "No information rate" er rimelig stor, hvilket påstår, at man kunne få den samme resultat, hvis man gættede tilfældigt[@inkhorn82]. Så derfor er det svært at begrunde at modellen er pålideligt nok, selv om den var ret præcis i valideringsfasen.  
+
+<!-- I validering fasen blev der forudset vægttilvækst ved at give et vejrdatasæt fra 2019 juni måned. Resultaterne sammenlignes bagefter med de observerede værdier  -->
+  
+
+```{R }
+set.seed(123)
+ctree.pred <- predict(fit.ctree, hive_data_2019_jun.validate, type="response" )
+confusionMatrix(hive_data_2019_jun.validate$weight_delta_direction, ctree.pred)
+```
+
+
+<!-- .
+- confusionMatrix blev brugt til validere hvor præcist vores modellen er endlig er.
+- Man må også sige, at disse 4 fejl heller ikke er så "farlig", fordi der blev klassificeret DOWN, men det faktisk var UP, hvilket er modsat til det, hvornår der skulle gives "Early warning.", da "Early warning" som beskrevet ovenpå skulle gives kun i et tilfælde, hvis der blev klassificeret UP, men det gik faktisk DOWN. Det betyder faktisk, at i 2019 modellen ville give i hver faldt ingen  "forkerte" advarsler. Jeg har dog ikke nogen data sæt, hvor biene havde "ikke så godt", men det kunne være spændende at validere modellen på et datasæt, hvor der biende var syge.  
+- For at gøre modellen mere præcist til at give "Early warning", så kunne man evt. give en advarsel, hvis der er tre dage i strak, hvor vægten skulle gå op, men aktuelt gik det ned. Dvs. hvis sansynlighed for denne algortimen kunne være kun $0.2*0.2*0.2 = 0.008$
+- Det kunne være spændende at afprøve modellen med flere datasæt i fremtiden, når
+-->
+
+
+
+
+<!--
+
+- http://www.dave-cushman.net/bee/weathersense.html#:~:text=Honey%20bees%20can%20sense%20changes,directly%20linked%20to%20the%20storms.&text=So%2C%20if%20the%20wind%20is,a%20storm%20on%20the%20way.
+
+- Dvs når vi forudsiger at vægten skulle gå UP, men det gik faktisk DOWN, så det kan betyde at der er problem med familien. 
+- det var kun 4 der er farlig i dette. Som var predicted UP men var actual DOWN. Dvs. der kunne man få forket "Early warning", som man ikke skal reagere til.
+- Vi kan se, , at modellen forudsat 23 rigtigt ud af 30 dage. da der bruges validerings data fra 2019 july måned.  hvis vi bruger modellen til at forudse vægtændring af dataen fra 2019 July måned
+
+-->
+
+\pagebreak
+
+## Deep learning
+
+Der blev også eksperimenteret med deep learning til at forudsige vægttilvækst. Der blev benyttet `Keras` API i `Python` til at lave modellen. Hele koden kan findes i [Bilag D](#bilag_D).
+
+I starten var det lidt svært at få noget ud af det, fordi både min træningssæt og valideringsæt indeholder kun 30 rækker hvert. Det er dog anbefalet, at der skal være et stort datasæt, før det overhovedet giver mening at bruge deep learning[@sharma]. 
+
+Til gengæld lykkedes det at lave modellen mere præcist ved at øge `epochs` parameter til 200, dvs. hvor mange gange der skal  køres igennem træningssættet. Det kan forklares med, at hvis der kun er et lille træningssæt og `epochs` heller ikke er stor, så bliver modellen simpelthen ikke trænet nok gange igennem[@beam].
+
+Desuden blev resultaterne mere rigtige efter datasættet blev standardiseret, da det kan godt være at nogle variabler dominerede meget mere end de andre. Til sidst blev der valgt at have 4 neuroner i de skjulte lag, da tommelfingrereglen siger at det skal svare til en middelværdi af hvor mange variabler kommer ind i modellen og hvor mange resultater kommer ud. Der er syv variabler og der er et enkelt resultat.[@sun]   
+
+Så den endelig modellen består af:
+```
+Skjult lag 1: 4 neuroner, `ReLU` aktivering
+Skjult lag 2: 4 neuroner, `ReLU` aktivering
+Resultat lag: 1 neuron, `Sigmoid` aktivering
+```
+### Validering af Deep learing
+
+
+I valideringsfasen blev der brugt datasættet fra 2019 juni måned for at validere, hvor præcist modellen er i virkeligheden og opfange evt. "overfitting". På Firgur \ref{fig:cm_deep_learning} kan man se, at modellen har gættet 23 gange rigtigt ud af 30 forsøg, hvilket svarer til `0.76` præcision. 
+
+<!--
+```python
+test_loss, test_acc = model.evaluate(X_test, y_test)
+print('Test accuracy:', test_acc)
+```
+```
+1/1 [==============================] - 0s 18ms/step - loss: 0.7000 - accuracy: 0.7333
+Test accuracy: 0.7333333492279053
+![alt text here](cm_deep_learing.png)
+```
+-->
+
+```{r fig.width=3.5, fig.height=3.5,echo=FALSE, fig.cap="\\label{fig:cm_deep_learning} Confusion Matrix af de observede værdier og de forudsagde værdier ved at bruge deep learning."}
+library(png)
+library(grid)
+img <- readPNG("cm_deep_learing.png")
+ grid.raster(img,height = 0.8, width=1.1)
+```
+
+\pagebreak
+
+# Konklusion
+
+I dette projekt blev der arbejdede på dataen fra bistaderne. Først blev dataen oprenset og klargjort, bagefter blev der fundet ud af at der ikke en signifikant forskel mellem bistader fra den samme have. Og til sidst blev der lavet modellerne som kunne forudsige vægtudvikling både om sommeren og om vinteren. Selv om modellerne var ret præcise i valideringsfasen, er der stadig plads til mere validering og finjustering. 
+Personligt synes jeg også at projektet var givende, da jeg har afprøvet adskillige R og Python værktøjer i praksis. I fremtiden kunne det være dog spændende implementere modellerne i produktionen, så at det rent faktisk kunne bidrage biavlen med at passe på hans bifamilier. Dette var dog ikke en del af dette kursus.  
+
+
+<!--
+- ´og der sikkert findes en måde hvordan man kunnne lave endnu mere præcise modeller. 
+Den anden ting som kunne være spændende at prøve i fremtiding, men som var ikke en del af kurset at intgrere disse modeller til på en app, så måske kunne biavlen rent faktisk bruge det. 
+Modellerne kræver mere test 
+adskillige databehandlinger, dataanalyser og forudsigelser på dataen fra bistaderne.
+Der blev lavet nogen modeller, som kunne bidrage til biavlen til at gribe ind tidligere, når der er problemer med bistadet, selv om disse modeller er slet ikke klar endnu, og det er sikkert man kan finde endnu bedre modeller med mere avancerede metoder eller bøje dataen på anden måde. here jeg mener at lagge vejr data til at finde lidt sammenhæng med vejret 3 siden og vægttilvækst i dag. Modellerne heller ikke tage hensyn, til hvad er tidspunkt nu, så man skal man sætter i disse modeller. 
+Personligt har jeg lært ret meget, da jeg skulle skrive en del R koden for at få det til at fungere. Men jeg ved også godt at jeg fik prøvet en lille del af de mange mulighder som tilbyder R.--> 
+
+
+# Referencer
+
+<div id="refs"></div>
+
+\pagebreak
+
+# Bilag
+ 
+## Bilag A: Opsummering af alle variabler i datasættet {#bilag_A}
+
+```{r include=FALSE}
+hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'", raw=TRUE, all=TRUE)
+
+#str(hive_data)
+#summary(hive_data)
+```
+
+
+```{r echo=FALSE , message=FALSE}
+knitr::kable(papeR::summarize(hive_data[,-1]),
+             caption = "\\label{tab:summarize_all} Opsummering af stade1 fra 2019-09-01 to 2020-09-01")
+#Hmisc::describe(hive_data)
+```
+
+## Bilag B: Mine funktioner i R{#bilag_B} 
+```R
+import_hive_data <- function(from, to, raw=FALSE, all=FALSE){
+  library(DBI)
+  con <- dbConnect(RSQLite::SQLite(), "data/stade1.db")
+  table_name <- dbListTables(con)
+  fields <- dbListFields(con, table_name)
+  select_period_with_intervention_query <-
+  paste("SELECT * from", table_name, "WHERE hive_observation_time_local > ",from," AND 
+                        hive_observation_time_local < ", to, sep=" ") 
+  
+  sendQuery <- dbSendQuery(con, select_period_with_intervention_query )
+  #  hive_data <<- dbFetch(sendQuery) 
+  hive_data <- dbFetch(sendQuery) 
+  if(!raw){
+    hive_data$hive_observation_time_local <- 
+    strptime(hive_data$hive_observation_time_local, format = "%Y-%m-%d %H:%M:%S")
+  }
+  if(!all){
+    vars <-
+    c("hive_observation_time_local", "hive_weight_kgs", "hive_temp_c",
+    "hive_humidity", "ambient_temp_c","ambient_humidity", "ambient_luminance")
+    hive_data <- hive_data[vars]
+  }
+  return (hive_data)  
+}
+
+import_hive_data_daily<- function(from, to){
+  to <- substr(to,2,20)
+  to <- paste("'", substr(as.POSIXlt(to)-1+60*60*24, 1, 19), "'", sep="") 
+  hive_data <- import_hive_data(from, to)
+  
+  # Manipulate weight deltas
+  periods_to_remove <- 
+  read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  
+  # Find max daily temprature values
+  hive_data_temp <- hive_data %>% 
+    mutate( dt = as.Date(hive_observation_time_local)) %>% 
+    group_by(dt) %>%
+    filter(ambient_temp_c == max(ambient_temp_c)) %>%
+    ungroup() %>%
+    distinct(dt, .keep_all = TRUE) %>%
+    select(dt ,ambient_temp_c)
+  
+  hive_data_temp <- rename(hive_data_temp, ambient_temp_c_day_max = ambient_temp_c )
+  
+  # Find midnight weight values 
+  hive_data <- hive_data %>% 
+    mutate( dt = as.Date(hive_observation_time_local)) %>% 
+    group_by(dt) %>%
+    filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
+    ungroup() %>% 
+    mutate(hive_weight_kgs = lead(hive_weight_kgs))  %>%  
+    select(!ambient_temp_c) %>%
+    slice(1:n()-1)
+  
+  hive_data <- rename(hive_data, hive_weight_kgs_daily = hive_weight_kgs)
+  # Merge midnight weight and max daily temp
+  hive_data <- merge(hive_data, hive_data_temp, by="dt")  
+  vars <- c("dt", "hive_weight_kgs_daily", "ambient_temp_c_day_max")
+  
+  return(hive_data[vars])
+
+}
+
+import_hive_data_csv <- function(filename){
+  hive_data <- read.table(file=filename, sep=",")
+  hive_data <- hive_data[ c("V1", "V2")] 
+  colnames(hive_data) <- c("hive_observation_time_local", "hive_weight_kgs")
+  hive_data$hive_observation_time_local <- 
+  strptime(hive_data$hive_observation_time_local, format = "%Y-%m-%d %H:%M:%S")
+  return (hive_data)  
+}
+
+extract_rows_given_weightdelta <- function(hive_data, weightdelta){
+  hive_data <- hive_data %>%  mutate(weight_delta = hive_weight_kgs -
+                                       dplyr::lag(hive_weight_kgs)) %>%
+    mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+  
+  hive_data[which(abs(hive_data[,"weight_delta"]) > weightdelta), 
+            c("hive_observation_time_local", "weight_delta")]
+}
+
+extract_rows_given_timedelta <- function(hive_data, timedelta){
+  hive_data <- hive_data %>%  mutate(timestamp_delta = hive_observation_time_local -
+                                       dplyr::lag(hive_observation_time_local)) %>% 
+    mutate(timestamp_delta = ifelse(is.na(timestamp_delta), 0, timestamp_delta))
+  hive_data[which(abs(hive_data[,"timestamp_delta"]) > timedelta), 
+            c("hive_observation_time_local", "timestamp_delta")]
+}
+
+plot_time_weight <- function(hive_data, title){
+  if(missing(title)){
+    title <- "Vægtudvikling"
+  }
+  min <- as.Date(head(hive_data, 1)[,"hive_observation_time_local"])
+  max <- as.Date(tail(hive_data, 1)[,"hive_observation_time_local"])   
+  plot(hive_data$hive_observation_time_local, hive_data$hive_weight_kgs,
+  type = 'l', xlab = paste("Tid fra", min, "til", max, sep= " ") , 
+  ylab="Vægt(kg)", main=title)
+}
+
+plot_time_weight_temp <- function(hive_data){
+  min <- as.Date(head(hive_data, 1)[,"dt"])
+  max <- as.Date(tail(hive_data, 1)[,"dt"])   
+  par(mar = c(5, 5, 3, 5))
+  plot(hive_data$dt, hive_data$hive_weight_kgs_daily, 
+        type ="l", ylab = "Vægt(kg)", lty=2,
+       main ="Sammenhæng mellem vægt og temperatur",
+       xlab = paste("Tid fra", min, "til", max, sep= " "),
+       col = "grey")
+  par(new = TRUE)
+  plot(hive_data$dt, hive_data$ambient_temp_c_day_max, type = "l", xaxt = "n", yaxt = "n",
+       ylab = "", xlab = "", col = "black") # , lty = 2
+  axis(side = 4)
+  mtext("Temperatur(C)", side = 4, line = 3)
+  legend("topleft", c("Vægt", "Temperatur"),
+         col = c("grey", "black"), lty = c(2, 1))
+}
+
+
+manipulate_weight_deltas <- function(hive_data, periods){
+  library(dplyr)
+  # Add column weight_delta
+  hive_data <- hive_data %>%  mutate(weight_delta = hive_weight_kgs - 
+  dplyr::lag(hive_weight_kgs)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta))
+  
+  periods$from <- strptime(periods$from, format = "%Y-%m-%d %H:%M:%S")
+  periods$to <- strptime(periods$to, format = "%Y-%m-%d %H:%M:%S")
+  
+  # Manipulate weight deltas
+  for(row in 1:nrow(periods)){
+    hive_data$weight_delta[hive_data$hive_observation_time_local> periods[row, "from"]  
+    & hive_data$hive_observation_time_local < periods[row, "to"]  ] <- 
+    periods[row, "new_delta"]
+  }
+  
+  # Produce cumulative sums of weight deltas
+  hive_data <- hive_data %>% mutate(cum_delta=cumsum(weight_delta))
+  
+  # Produce new hive_weight_kgs from calculated cumulative sums
+  hive_data <- hive_data %>% mutate(hive_weight_kgs = hive_weight_kgs[1]+ cum_delta)
+  
+  
+  # Remove the produced columns
+  drops <- c("weight_delta", "cum_delta")
+  hive_data <- hive_data[ , !(names(hive_data) %in% drops)]
+  return(hive_data)
+}
+
+extract_midnight_weights <- function(hive_data){
+  
+  hive_data <- hive_data %>% 
+    mutate( dt = as.Date(hive_observation_time_local)) %>% 
+    group_by(dt) %>%
+    filter(hive_observation_time_local == min(hive_observation_time_local)) %>%
+    ungroup() %>%
+    select(!dt)
+  
+  return(data.frame(hive_data))
+  
+}
+
+
+
+return_period <- function(hive_data, from ,to){
+  from <-  strptime(from, format = "%Y-%m-%d %H:%M:%S")
+  to <- strptime(to, format = "%Y-%m-%d %H:%M:%S")
+  return(hive_data[hive_data$hive_observation_time_local > from & 
+  hive_data$hive_observation_time_local < to  , ])
+}
+
+```
+
+\pagebreak
+
+## Bilag C: Dataklargøring til klassificering af vægttilvækst{#bilag_C}
+
+
+```r
+# Prepare train data
+hive_data_2020_jun.train <- import_hive_data_daily(from = "'2020-05-31 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+# Extract weight deltas
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%  mutate(weight_delta = 
+  hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta)) %>%
+  slice(2:n())
+# Categorize weight delta directions
+hive_data_2020_jun.train <- hive_data_2020_jun.train %>%
+  mutate(weight_delta_direction = ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2020_jun.train$weight_delta_direction <- 
+            factor(hive_data_2020_jun.train$weight_delta_direction) 
+# Merge with weather data
+weather_data_furesoe_2020_jun <- read.table(file="data/furesø-kommune-juni-2020.csv",
+                                            sep="," ,header = TRUE)
+weather_data_furesoe_2020_jun$dt <- as.Date(weather_data_furesoe_2020_jun$dt)
+hive_data_2020_jun.train <- merge(hive_data_2020_jun.train,
+                                  weather_data_furesoe_2020_jun, by="dt")  
+# Remove not used columns
+hive_data_2020_jun.train <- select(hive_data_2020_jun.train, 
+                                   !c(hive_weight_kgs_daily,weight_delta, dt))
+
+# Prepare validate data
+hive_data_2019_jun.validate <- 
+  import_hive_data_daily(from = "'2019-05-31 00:00:00'", to="'2019-07-01 00:00:00'")
+# Extract weight deltas
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%  
+mutate(weight_delta = hive_weight_kgs_daily - dplyr::lag(hive_weight_kgs_daily)) %>%
+  mutate(weight_delta = ifelse(is.na(weight_delta), 0, weight_delta)) %>%
+  slice(2:n())
+# # Categorize weight delta directions
+hive_data_2019_jun.validate <- hive_data_2019_jun.validate %>%
+  mutate(weight_delta_direction =  ifelse(weight_delta<0, "DOWN", "UP"))
+hive_data_2019_jun.validate$weight_delta_direction <-
+  factor(hive_data_2019_jun.validate$weight_delta_direction) 
+# Merge with weather data
+weather_data_furesoe_2019_jun <-
+  read.table(file="data/furesø-kommune-juni-2019.csv", sep="," ,header = TRUE)
+weather_data_furesoe_2019_jun$dt <- as.Date(weather_data_furesoe_2019_jun$dt)
+hive_data_2019_jun.validate <- 
+  merge(hive_data_2019_jun.validate, weather_data_furesoe_2019_jun, by="dt")  
+# Remove not used columns
+hive_data_2019_jun.validate <- 
+  select(hive_data_2019_jun.validate, !c(hive_weight_kgs_daily,weight_delta, dt))
+```
+
+\pagebreak
+
+## Bilag D: Deep learning i Python {#bilag_D}
+
+```python
+import pandas as pd
+import tensorflow as tf
+from tensorflow import keras
+from sklearn.model_selection import train_test_split
+import numpy as np
+hive_data_2019_jun_validate = pd.read_csv('hive_data_2019_jun.validate.csv')
+hive_data_2020_jun_train = pd.read_csv('hive_data_2020_jun.train.csv')
+hive_data_2019_jun_validate.loc[hive_data_2019_jun_validate['weight_delta_direction']
+== 'UP','weight_delta_direction'] = 1.0
+hive_data_2019_jun_validate.loc[hive_data_2019_jun_validate['weight_delta_direction'] 
+== 'DOWN','weight_delta_direction'] = 0.0
+hive_data_2020_jun_train.loc[hive_data_2020_jun_train['weight_delta_direction']
+== 'UP','weight_delta_direction'] = 1.0
+hive_data_2020_jun_train.loc[hive_data_2020_jun_train['weight_delta_direction'] 
+== 'DOWN','weight_delta_direction'] = 0.0
+
+properties = list(hive_data_2020_jun_train.columns.values)
+properties.remove('weight_delta_direction')
+X_train = hive_data_2020_jun_train[properties]
+y_train = hive_data_2020_jun_train['weight_delta_direction']
+
+
+properties = list(hive_data_2019_jun_validate.columns.values)
+properties.remove('weight_delta_direction')
+X_test = hive_data_2019_jun_validate[properties]
+y_test = hive_data_2019_jun_validate['weight_delta_direction']
+
+# Standardization
+from sklearn.preprocessing import StandardScaler
+sc = StandardScaler()
+X_train = sc.fit_transform(X_train)
+X_test = sc.transform(X_test)
+
+# Train
+model = keras.Sequential([
+keras.layers.Dense(4, activation=tf.nn.relu, input_shape=(7,)), 
+keras.layers.Dense(4, activation=tf.nn.relu),
+keras.layers.Dense(1, activation=tf.nn.sigmoid), # Output single value.
+])
+
+model.compile(optimizer='adam',
+              loss='binary_crossentropy',
+              metrics=['accuracy'])
+
+y_train = np.asarray(y_train).astype('float32')
+y_test = np.asarray(y_test).astype('float32')
+model.fit(X_train, y_train, epochs=200, batch_size=1)
+test_loss, test_acc = model.evaluate(X_test, y_test)
+print('Test accuracy:', test_acc)
+
+
+# Validate
+import pylab as pl
+from google.colab import files
+new_prediction = model.predict(X_test)
+new_prediction = (new_prediction > 0.5)
+from sklearn.metrics import confusion_matrix
+labels = ['DOWN', 'UP']
+cm = confusion_matrix(y_test, new_prediction)
+
+# Plot confusion matrix
+import seaborn as sns
+import matplotlib.pyplot as plt     
+
+ax= plt.subplot()
+
+sns.heatmap(cm, annot=True, ax = ax); #annot=True to annotate cells
+
+# labels, title and ticks
+ax.set_xlabel('Predicted labels');ax.set_ylabel('True labels'); 
+ax.set_title('Confusion Matrix'); 
+ax.xaxis.set_ticklabels(['DOWN', 'UP']); ax.yaxis.set_ticklabels(['DOWN', 'UP']);
+```
+
+
+
+
