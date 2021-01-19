@@ -1,12 +1,18 @@
 ---
 title: "Bistader"
+subtitle: "62527 Big data E20"
 author: "Armandas Rokas"
-date: 23/11 2020
+date: 19/01 2021
 output:
   revealjs::revealjs_presentation:
-    logo: ic_beeware_launcher_logo-web.png
-  theme: league
+    theme: default
+    center: false
+    reveal_options:
+      slideNumber: true
+    includes:
+      logo: ic_beeware_launcher_logo-web.png
 ---
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
@@ -19,16 +25,147 @@ library(party)
 library(papeR)
 setwd("/home/arm/Projects/bigdata_bees")
 ```
+
+
 # Problemformulering
+<!-- God dag! Jeg hedder Armandas og mit projekt i Big data kurset hanlder om bistader. -->
 
-I dette projekt skulle der arbejdes på dataen fra bistadet. Et helt overordnet formål ved dette er at hjælpe biavlen med driften af hans bifamilier. Mere præcist kommer projektet at udbrede sig i tre forskellige spektre:
+```{css, echo=FALSE}
+body {
+    background-image: url(ic_beeware_launcher_logo-web.png);
+    background-size: 10%;
+    background-repeat: no-repeat;
+    background-position: 96% 3%;
+}
+```
 
->- at sammenligne to forskellige bistader fra den same have til at finde ud om den ene bifamilie præstere bedre end den anden.
->- at forudsige vægten i vinterperdiode for at forebygge evt. sult i bifamilien.
->- at klassificere der vægttivækst i sommerperioden med et formål at advare biavlen, når en bifamilien evt. er syg. 
+
+
+
+```{css, echo=FALSE}
+body:after {
+content: 'Armandas Rokas';
+position: fixed;
+bottom: 1em;
+left: 1em;}
+```
+
+
+
+<!--
+I dette projekt skulle der arbejdes på dataen fra bistadet. :
+Der blev sat disse formål i dette projekt
+-->
+> - Data fra bistader
+> - Formål: <!-- Et helt overordnet formål ved dette er at hjælpe biavlen med driften af hans bifamilier. Mere præcist kommer projektet at udbrede sig i tre forskellige spektre -->
+>    - at sammenligne to separate bistader fra den same have for at finde ud af om den ene bifamilie præstere bedre end den anden.
+>    - at forudsige vægten i vinterperdiode for at forebygge evt. sult i bifamilien.
+>    - at klassificere vægttilvækst i sommerperioden for at finde ud af om en bifamilien evt. er syg. 
+  
+<!-- Og min præsentation kommer til at handle om disse punkter. -->
+
+# Agenda
+<!-- I dag skal jeg først starte med at beskrive data -->
+> - Data beskrivelse
+> - Databehandling
+> - Sammenligning af bistader
+> - Forudsigelse af vægten i vinterperioden
+> - Klassificering af vægttilvækst i sommerperioden
+>    - Beslutningstræet
+>    - Deep learning
+> - Opsummering
+
+# Data beskrivelse 
+
+> - Sensorer -> `Raspberry pi` -> `SQLite`  
+> - `DBI` pakke til at kommunikere med SQLite fra R
+> - Observationer hver 5. minut
+> - Fra 2018-03-07 til 2020-09-01.
+> - Variabler: 
+>    - `hive_observation_time_local`
+>    - `hive_weight_kgs`
+>    - `hive_temp_c`
+>    - `hive_humidity`
+>    - `ambient_temp_c`
+>    - `ambient_humidity`
+>    - `ambient_luminance`
+
+
+## Vægt
+<!--
+- Vægt er selvfølig er central variabel her, so her kan man se et årsvægt på grafen. Her kan man tydeligt se to sæsoner. 
+- Om vinteren falder vægten konstant, da bierne forbruger foder 
+- Om sommeren til gengæld bierne begynder at hente nektar, så vægten stiger kraftigt. -->
+
+
+```{r include=FALSE}
+hive_data <- import_hive_data(from = "'2019-09-01 00:00:00'", to="'2020-09-01 00:00:00'")
+```
+
+
+
+```{r echo=FALSE, fig.cap="\\label{fig:weightyear} Vægtudvikling på bistade1 fra 2019-09-01 til 2020-09-01"}
+plot_time_weight(hive_data) 
+```
+
+
+# Databehandling
+
+- Manual indgreb
+
+<!-- Først og fremmest datasættet skulle blive renset for stor udsing i vægten som skyldes manual ingreb. Oftest fordi biavlen skulle påsætte en masaing eller fjener fra bistadet. -->
+
+```{R echo=FALSE, fig.cap="\\label{fig:manualindgreb} Vægtudvikling på bistade1 fra 2020-05-24 til 2020-06-01, hvor til venstre er den oprindelige data, og til højre den behandelede data, hvor et manualt indgreb er fjernet." }
+hive_data <- import_hive_data(from = "'2020-05-24 00:00:00'", to="'2020-06-01 00:00:00'")
+  par(mfrow=c(1,2))
+  plot_time_weight(hive_data, title="Den oprindelige data")
+  
+  
+
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  
+  
+  plot_time_weight(hive_data, title="Den behandlede data")
+
+```
+
+## Databehandling
+
+<!-- Den anden udfordring var at  der var alt for mange datapunkter. Der er problem fordi bierne følge deres daglig rutine. Det flyver ud om morgen, indsamle nektar i løbet af dagen og om natten de fordamper nektaren. Dvs. det vil være misvisnende at bruge alle datapunkter. Så der blev besluttet at det er mest rigtigt at bruge kun midnatsværdier. -->
+
+- Midnats vægtværdier
+```{R echo=FALSE, fig.cap="\\label{fig:night_weight} Vægtudvikling på bistade1 fra 2020-05-01 til 2020-09-01, hvor til venstre er der en graf med alle datapunkter, og til højre kun med midnatsværdier." }
+  hive_data <- import_hive_data(from = "'2020-05-01 00:00:00'", to="'2020-09-01 00:00:00'")
+  periods_to_remove <- read.table(file="data/stade1_period_to_ignore_manipulate.csv", sep=",", header = TRUE)
+  hive_data <- manipulate_weight_deltas(hive_data=hive_data, periods=periods_to_remove)
+  par(mfrow=c(1,2))
+  plot_time_weight(hive_data, title="Alle datapunkter")
+  hive_data <- extract_midnight_weights(hive_data)
+  plot_time_weight(hive_data, title="Kun midnatsværdier")
+```
+
+## Databehandling
+
+<!--I tilknytning til at der er alt for mange datapunkter, skulle der også findes temperatur døgnværdier. Man kunne ikke bruge her midnatsværdier. Gennemsnit heller ikke godt nok, der lav natte tempreture ville udligne høj dagstemperatur. Så der blev besluttet at de meste informative værdier er de højeste i døgn. Så nedenfor kan I se midnats vægt og den højeste døgn værdi i samme graf. -->
+- Døgntemperaturværdier
+```{R echo=FALSE,  fig.cap="\\label{fig:weight_temp} Sammenhæng mellem vægt og temperatur"}
+hive_data_2020_jun <- import_hive_data_daily(from = "'2020-06-01 00:00:00'",
+                                                   to="'2020-07-01 00:00:00'")
+plot_time_weight_temp(hive_data_2020_jun)
+```
+
 
 # Sammenligning af bistader
 
+<!-- Formålet igen for at sige det igen at finde ud om der er forkel mellem bi familien for at ved en dronning til næste familie.  -->
+
+> - To bistader fra den samme have
+> - Formål:
+>     - undersøge om den ene familie præstere bedre end den anden
+>     - kunne bruges til at vælge "mor" til evt. ny familie
+  
+## Sammenligning af bistader
 
 ```{R echo=FALSE,  fig.cap="\\label{fig:compare_hives} Vægtudvikling på bistade1 og bistade3 fra 2020-05-01 til 2020-08-31"}
 # Hive 1
@@ -61,7 +198,12 @@ legend("topleft", c("Bistade1", "Bistade3"),
        col = c("red", "blue"), lty = c(1, 1))
 ```
 
+
+
 ## Daglige tilvækst
+
+<!-- Det er ret svært med at se med det blotte øje -->
+
 ```{r include=FALSE}
 hive1 <- hive1 %>%  mutate(daily_weight_delta = hive_weight_kgs -
   dplyr::lag(hive_weight_kgs)) %>%
@@ -81,18 +223,29 @@ legend("topleft", c("Bistade1", "Bistade3"),
 ```
 
 
-## Hypotesetest
+## Welch Two Sample t-test
 
-
+<!--
+Det er grundlæggende Hyposistest, hvor H0 er at det er ens og alternative at de ikke er ens. Man kan godt se at p-value er ret højt, hvilket betyder, at man ikke kan afvise, at de er ens, altså der er igen forskel mellem bistader. -->
 
 ```{R}
 t.test(hive1$daily_weight_delta, hive3$daily_weight_delta)
 ```
 
+>- Konklusion: ingen signifikant forskel mellem bistaderne
 
-# Forudsigelse af vægten i vinterperioden
+# Forudsigelse af vægten
+<!-- Nu skal der forudsiges vægten i  -->
+> - **Vinterperiode**
+> - Formål: 
+>    - Forbygge evt. sult i bifamilien 
+>    - Overvåge bifamilien's helbred  
+> - Der blev lavet et `Time-Series` objekt og benyttet `forecast` pakke i R til at forudsige vægten
 
 
+## Forudsigelse af vægten
+
+ 
 ```{R include=FALSE}
 hive1_winter <- import_hive_data(from = "'2019-11-01 00:00:00'", to="'2020-03-01 00:00:00'")
 hive1_winter <- extract_midnight_weights(hive1_winter)
@@ -151,18 +304,25 @@ legend("bottomleft", legend=c("80% konfidensinterval", "95% konfidensinterval"),
 
 # Klassificering af vægttilvækst
 
->- Om vægten skulle gå OPAD eller NEDAD. 
->- Vejrparametre som “predictors”.
->- Formålet med dette kunne være at advare biavlen, når bistadets vægten falder, selv om vejrforholdene er tilstrækkelige for at bierne skulle indsamle nektar.
+>- **Sommerperioder** <!-- Forudsige vægtudvikling om sommeren er meget sværere end om vinteren, da vægten  afhænger bl.a. om bierne indsamler nektar eller nej. Og det er vi mest interesseret. Så det bedste kan jeg at forudsige om de skulle gå opad eller nedad  -->
+>- OPAD eller NEDAD ved at bruge vejrparametre som “predictors”   <!-- Om vægten skulle gå opad eller nedad -->
+>- Formålet: 
+>    - at advare biavlen, når den faktiske vægt går nedad, selv om vejret tillader at bierne flyver ud og indsamler nektar.
+>- Værktøj:
+>    - Klassificeringstræet i R (`ctree` in `party` pakke)
+>    - Deep learning i Python (`Keras` API )
 
-## Sammenhæng mellem vægt og temperatur
-```{R echo=FALSE,  fig.cap="\\label{fig:weight_temp} Sammenhæng mellem vægt og temperatur"}
-hive_data_2020_jun <- import_hive_data_daily(from = "'2020-06-01 00:00:00'",
-                                                   to="'2020-07-01 00:00:00'")
-plot_time_weight_temp(hive_data_2020_jun)
-```
+<!--da vi antager, hvis vorjforholdet er tilstræklig, så bierne skulle indsamle nektar og vægten skulle stige. Til gengæld hvis vejr er for dårligt, så skulle vægten gå nedad. -->
+
+
+
 
 ## Ekstern vejrdata
+
+<!-- Men lad os starte med vejrparametre -->
+<!-- Der var ikke nok vejrparamterer i datasæt, som har fået fra bistader. Så var jeg nødt til at sammensætte med flere parameter fra DMI. Så her er datasæt, som jeg skal bruge til at forudsige vægten.  -->
+<!-- Regn, Fugtighed, Vind, luftryk, tørkeindeks, solskinstimer -->
+
 ```{r echo=FALSE ,  fig.cap="\\label{fig:weather_data} Ekstern vejrdata fra DMI i juni måned 2020"}
 weather_data_furesoe_jun <- read.table(file="data/furesø-kommune-juni-2020.csv", sep="," ,header = TRUE)
 weather_data_furesoe_jun$dt <- as.Date(weather_data_furesoe_jun$dt)
@@ -225,9 +385,74 @@ plot(fit.ctree)
 
 ## Validering
 
+<!-- Der blev valideret med datasæt fra 2019 -->
 
 ```{R }
 set.seed(123)
 ctree.pred <- predict(fit.ctree, hive_data_2019_jun.validate, type="response" )
 confusionMatrix(hive_data_2019_jun.validate$weight_delta_direction, ctree.pred)
 ```
+
+
+<!--
+Der er meget begrænset data, men modellen kunne optimeres ved at bruge alle datapunkter og tilføje cross-validation, men for denne gang ville jeg have en datasæt til validering. Dvs. for at være sikker, hvor godt modellen præseterer, når der forudsiges ukendt data til modellen
+
+Example of Cross validation
+library(caret)
+fit <- train(status ~ ., data = dat , method = "ctree",
+    trControl = trainControl(method = "cv", number = 10),
+    tuneLength=5) 
+fit              # print results
+-->
+
+# Klassificering med Deep learning
+
+>- Den samme opsætning og formålet som sidst
+>- Keras API i Python
+>- Datasæt blev normaliseret
+>- For at gøre modellen mere præcis, blev Epoch øget til 200
+>    - L2 regularizer eller Dropout for at beskytte mod overfitting
+>- Så den endelig modellen består af:
+>    - Skjult lag 1: 4 neuroner, ‘ReLU‘ aktivering
+>    - Skjult lag 2: 4 neuroner, ‘ReLU‘ aktivering
+>    - Resultat lag: 1 neuron, ‘Sigmoid‘ aktivering
+
+<!-- Det er næsten et krav at kontinuerlig data skal være normaliseret  >
+
+<!--
+Og jeg var nødt til at øge Epcoh op til 200, fordi da jeg brugt anbefalet ca. 20 Epoch,
+så modellen var virkelig upræcis i valideringsfasen. 
+Men hvis jeg skal være bagklog nu, så ville jeg også inkludere L2 regularizer og dropout 
+teknikker til at beskytte mod overfitting. 
+-->
+
+<!-- Tommelfingre reglen siger at man skal tage gennemsnit af hvor mange input variabler og output variabler -->
+
+<!--
+Rectified linear unit (ReLU)  f(x)=max(0, x)
+**Sigmoid function**, which maps any real value into another value between 0 and 1
+-->
+
+## Validering af DL modellen
+
+
+```{r fig.width=7, fig.height=7,echo=FALSE, fig.cap="\\label{fig:cm_deep_learning} Confusion Matrix af de observede værdier og de forudsagde værdier ved at bruge deep learning."}
+library(png)
+library(grid)
+img <- readPNG("cm_deep_learing.png")
+ grid.raster(img,height = 0.8, width=1.1)
+```
+
+<!-- 
+- I validerings fasen blev der brugt igen et andet datasæt end der blev brugt til træning
+- Modellen har udsagt 23 gange rigtigt ud af 30 forsøg, hvilket svarer til 0.76 præcision.
+Men man kan godt sige at det præsteret dårligere end beslutningstræet. Og det er svæere at fortolke -->
+
+
+# Opsummering
+>- En hel del værktøjer både i R og Python
+>- Welch Two Sample t-test
+>- Tidsserie forudsigelse
+>- Beslutningstræet 
+>- Keras API og Deep learning 
+
